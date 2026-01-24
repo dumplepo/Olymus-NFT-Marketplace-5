@@ -31,6 +31,8 @@ export function LandingPage({ onEnter }) {
           className="absolute inset-0 opacity-40"
           style={{
             backgroundImage: `url('https://images.unsplash.com/photo-1712663640135-f5fc71dca38e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxvbHltcHVzJTIwY2xvdWRzJTIwZGl2aW5lfGVufDF8fHx8MTc2OTI4NzU3OXww&ixlib=rb-4.1.0&q=80&w=1080')`,
+            // backgroundImage: `url('.../.../zeus vs typhone.mp4')`,
+
             backgroundSize: 'cover',
             backgroundPosition: 'center',
             transform: `translateY(${scrollY * 0.5}px)`,
