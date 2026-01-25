@@ -1,0 +1,2631 @@
+i have already generated UI code.
+------
+📁 Project Structure
+Olymus-NFT-Marketplace-5/
+├── artifacts/
+├── contracts/
+│   └── MythicNFTMarketplace.sol          
+├── frontend/  
+│   ├── node_modules/      
+│   ├── src/
+│   │    ├── components/
+│   │    │        ├── figma/
+│   │    │        │     └── ImageWithFallback.jsx
+│   │    │        ├── ActionModal.jsx
+│   │    │        ├── AuctionsSection.jsx
+│   │    │        ├── CollectionsSection.jsx     
+│   │    │        ├── Footer.jsx
+│   │    │        ├── LandingPage.jsx
+│   │    │        ├── LightningEffect.jsx  
+│   │    │        ├── MainPage.jsx
+│   │    │        ├── MarketplaceSection.jsx
+│   │    │        ├── MintNFTSection.jsx 
+│   │    │        ├── MyNFTsSection.jsx
+│   │    │        ├── NFTCard.jsx
+│   │    │        ├── NFTDetailModal.jsx
+│   │    │        ├── StatusBar.jsx
+│   │    │        └── Toolbar.jsx     
+│   │    ├───── data/
+│   │    │        └── mockData.js
+│   │    ├───── styles/
+│   │    │        └── globals.css
+│   │    ├───── types/
+│   │    │        └── index.js
+│   │    ├───── App.jsx
+│   │    ├───── index.css
+│   │    ├───── main.jsx
+│   │    └───── types
+│   ├── index.html
+│   └── vite.config.js
+├── node_modules
+├── test
+└── hardhat.config.js
+-----MythicNFTMarketplace.sol
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+/*
+    ===============================
+    Greek Mythology NFT Marketplace
+    ===============================
+
+    This contract is designed to be FRONTEND-FRIENDLY.
+    Every function directly maps to a UI interaction.
+
+    Environment:
+    - Node.js v22x
+    - Hardhat v2.28.3
+    - @nomicfoundation/hardhat-toolbox ^6.1.0
+*/
+
+import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+contract MythicNFTMarketplace is ERC721URIStorage, ReentrancyGuard, Ownable {
+
+    /* ------------------------------------------------------------ */
+    /*                          NFT DATA                            */
+    /* ------------------------------------------------------------ */
+
+    uint256 public tokenCounter;
+
+    enum NFTType {
+        God,
+        Titan,
+        Hero,
+        Creature,
+        Artifact
+    }
+
+    struct NFTMeta {
+        string name;
+        string description;
+        NFTType nftType;
+        address creator;
+    }
+
+    mapping(uint256 => NFTMeta) public nftMetadata;
+
+    /* ------------------------------------------------------------ */
+    /*                        MARKETPLACE                           */
+    /* ------------------------------------------------------------ */
+
+    struct Listing {
+        uint256 price;
+        address seller;
+        bool active;
+    }
+
+    // tokenId => Listing
+    mapping(uint256 => Listing) public marketplaceListings;
+
+    /* ------------------------------------------------------------ */
+    /*                        AUCTIONS                              */
+    /* ------------------------------------------------------------ */
+
+    struct Auction {
+        uint256 startPrice;
+        uint256 highestBid;
+        address highestBidder;
+        uint256 endTime;
+        address seller;
+        bool active;
+    }
+
+    // tokenId => Auction
+    mapping(uint256 => Auction) public auctions;
+
+    /* ------------------------------------------------------------ */
+    /*                    PURCHASE REQUESTS                         */
+    /* ------------------------------------------------------------ */
+
+    struct PurchaseRequest {
+        address buyer;
+        uint256 offeredPrice;
+        bool active;
+    }
+
+    // tokenId => PurchaseRequest[]
+    mapping(uint256 => PurchaseRequest[]) public purchaseRequests;
+
+    /* ------------------------------------------------------------ */
+    /*                          EVENTS                              */
+    /* ------------------------------------------------------------ */
+
+    event NFTMinted(uint256 tokenId, address creator);
+    event ListedForSale(uint256 tokenId, uint256 price);
+    event SaleCancelled(uint256 tokenId);
+    event NFTPurchased(uint256 tokenId, address buyer);
+    event NFTTransferred(uint256 tokenId, address to);
+    event AuctionCreated(uint256 tokenId, uint256 endTime);
+    event BidPlaced(uint256 tokenId, uint256 amount);
+    event AuctionEnded(uint256 tokenId, address winner);
+
+    constructor() ERC721("MythicNFT", "MYTH") Ownable(msg.sender) {
+        tokenCounter = 0;
+    }
+
+    /* ------------------------------------------------------------ */
+    /*                        MINT NFT                              */
+    /* ------------------------------------------------------------ */
+
+    /*
+        UI: Mint NFT Page
+        - Upload image (stored via IPFS)
+        - Enter name
+        - Select collection (NFTType)
+        - Description
+    */
+    function mintNFT(
+        string memory tokenURI,
+        string memory name,
+        string memory description,
+        NFTType nftType
+    ) external {
+        uint256 tokenId = tokenCounter;
+
+        _safeMint(msg.sender, tokenId);
+        _setTokenURI(tokenId, tokenURI);
+
+        nftMetadata[tokenId] = NFTMeta({
+            name: name,
+            description: description,
+            nftType: nftType,
+            creator: msg.sender
+        });
+
+        tokenCounter++;
+        emit NFTMinted(tokenId, msg.sender);
+    }
+
+    /* ------------------------------------------------------------ */
+    /*                    MARKETPLACE SALE                          */
+    /* ------------------------------------------------------------ */
+
+    /*
+        UI: My NFT → Sell Button
+    */
+    function listForSale(uint256 tokenId, uint256 price) external {
+        require(ownerOf(tokenId) == msg.sender, "Not NFT owner");
+        require(price > 0, "Price must be > 0");
+
+        marketplaceListings[tokenId] = Listing({
+            price: price,
+            seller: msg.sender,
+            active: true
+        });
+
+        emit ListedForSale(tokenId, price);
+    }
+
+    /*
+        UI: Marketplace → Cancel Sale
+    */
+    function cancelSale(uint256 tokenId) external {
+        Listing storage listing = marketplaceListings[tokenId];
+        require(listing.seller == msg.sender, "Not seller");
+
+        listing.active = false;
+        emit SaleCancelled(tokenId);
+    }
+
+    /*
+        UI: Marketplace → Buy Button
+    */
+    function buyNFT(uint256 tokenId) external payable nonReentrant {
+        Listing storage listing = marketplaceListings[tokenId];
+        require(listing.active, "Not for sale");
+        require(msg.value == listing.price, "Incorrect price");
+
+        listing.active = false;
+
+        (bool success, ) = payable(listing.seller).call{value: msg.value}("");
+        require(success, "Payment to seller failed");
+        _transfer(listing.seller, msg.sender, tokenId);
+
+        emit NFTPurchased(tokenId, msg.sender);
+    }
+
+    /* ------------------------------------------------------------ */
+    /*                    TRANSFER NFT (FREE)                       */
+    /* ------------------------------------------------------------ */
+
+    /*
+        UI: My NFT → Transfer Button
+    */
+    function transferNFT(uint256 tokenId, address to) external {
+        require(ownerOf(tokenId) == msg.sender, "Not owner");
+
+        _transfer(msg.sender, to, tokenId);
+        emit NFTTransferred(tokenId, to);
+    }
+
+    /* ------------------------------------------------------------ */
+    /*                        AUCTIONS                              */
+    /* ------------------------------------------------------------ */
+
+    /*
+        UI: My NFT → Auction Button
+        Time is entered in SECONDS
+    */
+    function createAuction(
+        uint256 tokenId,
+        uint256 startPrice,
+        uint256 duration
+    ) external {
+        require(ownerOf(tokenId) == msg.sender, "Not owner");
+        require(duration > 0, "Invalid duration");
+
+        auctions[tokenId] = Auction({
+            startPrice: startPrice,
+            highestBid: 0,
+            highestBidder: address(0),
+            endTime: block.timestamp + duration,
+            seller: msg.sender,
+            active: true
+        });
+
+        emit AuctionCreated(tokenId, block.timestamp + duration);
+    }
+
+    /*
+        UI: Auction → Bid Button
+    */
+    function placeBid(uint256 tokenId) external payable nonReentrant {
+        Auction storage auction = auctions[tokenId];
+        require(auction.active, "Auction inactive");
+        require(block.timestamp < auction.endTime, "Auction ended");
+        require(msg.sender != auction.seller, "Owner cannot bid");
+        require(msg.value > auction.highestBid, "Bid too low");
+
+        if (auction.highestBidder != address(0)) {
+            (bool success, ) = payable(auction.highestBidder).call{value: auction.highestBid}("");
+            require(success, "Refund failed");
+        }
+
+        auction.highestBid = msg.value;
+        auction.highestBidder = msg.sender;
+
+        emit BidPlaced(tokenId, msg.value);
+    }
+
+    /*
+        UI: Auction → Auto / Manual End
+    */
+    function endAuction(uint256 tokenId) external nonReentrant {
+        Auction storage auction = auctions[tokenId];
+        require(auction.active, "Auction inactive");
+        require(block.timestamp >= auction.endTime, "Auction not ended");
+
+        auction.active = false;
+
+        if (auction.highestBidder != address(0)) {
+            (bool success, ) = payable(auction.seller).call{value: auction.highestBid}("");
+            require(success, "Auction payout failed");
+            _transfer(auction.seller, auction.highestBidder, tokenId);
+            emit AuctionEnded(tokenId, auction.highestBidder);
+        }
+    }
+
+    /* ------------------------------------------------------------ */
+    /*                  PURCHASE REQUEST SYSTEM                     */
+    /* ------------------------------------------------------------ */
+
+    /*
+        UI: Collections → Purchase Request Button
+    */
+    function requestPurchase(uint256 tokenId, uint256 price) external {
+        require(ownerOf(tokenId) != msg.sender, "Owner cannot request");
+
+        purchaseRequests[tokenId].push(
+            PurchaseRequest({
+                buyer: msg.sender,
+                offeredPrice: price,
+                active: true
+            })
+        );
+    }
+
+    /*
+        UI: Owner → Approve Purchase Request
+    */
+    function approvePurchaseRequest(uint256 tokenId, uint256 index) external nonReentrant {
+        PurchaseRequest storage request = purchaseRequests[tokenId][index];
+        require(request.active, "Request inactive");
+        require(ownerOf(tokenId) == msg.sender, "Not owner");
+
+        request.active = false;
+
+        (bool success, ) = payable(msg.sender).call{value: request.offeredPrice}("");
+        require(success, "Payment failed");
+
+        _transfer(msg.sender, request.buyer, tokenId);
+    }
+}
+-----ImageWithFallback.jsx
+import React, { useState } from 'react'
+
+const ERROR_IMG_SRC =
+  'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iODgiIGhlaWdodD0iODgiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgc3Ryb2tlPSIjMDAwIiBzdHJva2UtbGluZWpvaW49InJvdW5kIiBvcGFjaXR5PSIuMyIgZmlsbD0ibm9uZSIgc3Ryb2tlLXdpZHRoPSIzLjciPjxyZWN0IHg9IjE2IiB5PSIxNiIgd2lkdGg9IjU2IiBoZWlnaHQ9IjU2IiByeD0iNiIvPjxwYXRoIGQ9Im0xNiA1OCAxNi0xOCAzMiAzMiIvPjxjaXJjbGUgY3g9IjUzIiBjeT0iMzUiIHI9IjciLz48L3N2Zz4KCg=='
+
+export function ImageWithFallback(props) {
+  const [didError, setDidError] = useState(false)
+
+  const handleError = () => {
+    setDidError(true)
+  }
+
+  const { src, alt, style, className, ...rest } = props
+
+  return didError ? (
+    <div
+      className={`inline-block bg-gray-100 text-center align-middle ${className || ''}`}
+      style={style}
+    >
+      <div className="flex items-center justify-center w-full h-full">
+        <img
+          src={ERROR_IMG_SRC}
+          alt="Error loading image"
+          {...rest}
+          data-original-url={src}
+        />
+      </div>
+    </div>
+  ) : (
+    <img
+      src={src}
+      alt={alt}
+      className={className}
+      style={style}
+      {...rest}
+      onError={handleError}
+    />
+  )
+}
+-----ActionModal.jsx
+import { motion } from 'motion/react';
+import { useState } from 'react';
+import { X } from 'lucide-react';
+
+const ActionModal = ({ type, nft, onClose, onLightning }) => {
+  const [price, setPrice] = useState('');
+  const [address, setAddress] = useState('');
+  const [duration, setDuration] = useState('');
+
+  const handleSubmit = () => {
+    onLightning();
+    
+    if (type === 'sell' && price) {
+      alert(`Listing ${nft.name} for ${price} ETH`);
+    } else if (type === 'transfer' && address) {
+      alert(`Transferring ${nft.name} to ${address}`);
+    } else if (type === 'auction' && price && duration) {
+      alert(`Starting auction for ${nft.name}\nStarting Price: ${price} ETH\nDuration: ${duration} seconds`);
+    } else {
+      alert('Please fill in all fields');
+      return;
+    }
+    
+    setTimeout(() => onClose(), 300);
+  };
+
+  const getTitle = () => {
+    switch (type) {
+      case 'sell': return 'List for Sale';
+      case 'transfer': return 'Transfer NFT';
+      case 'auction': return 'Create Auction';
+      default: return '';
+    }
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      onClick={onClose}
+      className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4"
+    >
+      <motion.div
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.9, opacity: 0 }}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-slate-900 border border-amber-500/20 rounded-xl max-w-md w-full p-6 
+                   shadow-[0_0_60px_rgba(251,191,36,0.2)]"
+      >
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-2xl text-amber-400 tracking-wide">{getTitle()}</h3>
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
+          >
+            <X className="w-5 h-5 text-amber-100" />
+          </button>
+        </div>
+
+        <div className="mb-6">
+          <p className="text-amber-100/70 mb-2">NFT: {nft.name}</p>
+          <p className="text-amber-100/50 text-sm">Token #{nft.tokenId}</p>
+        </div>
+
+        <div className="space-y-4 mb-6">
+          {(type === 'sell' || type === 'auction') && (
+            <div>
+              <label className="block text-amber-100 mb-2">
+                {type === 'auction' ? 'Starting Price (ETH)' : 'Price (ETH)'}
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={price}
+                onChange={(e) => setPrice(e.target.value)}
+                placeholder="0.00"
+                className="w-full px-4 py-3 bg-slate-800 border border-amber-500/20 rounded-lg
+                           text-amber-100 placeholder-amber-100/30 focus:outline-none focus:border-amber-500/40"
+              />
+            </div>
+          )}
+
+          {type === 'transfer' && (
+            <div>
+              <label className="block text-amber-100 mb-2">Recipient Address</label>
+              <input
+                type="text"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                placeholder="0x..."
+                className="w-full px-4 py-3 bg-slate-800 border border-amber-500/20 rounded-lg
+                           text-amber-100 placeholder-amber-100/30 focus:outline-none focus:border-amber-500/40"
+              />
+            </div>
+          )}
+
+          {type === 'auction' && (
+            <div>
+              <label className="block text-amber-100 mb-2">Duration (seconds)</label>
+              <input
+                type="number"
+                min="1"
+                value={duration}
+                onChange={(e) => setDuration(e.target.value)}
+                placeholder="3600"
+                className="w-full px-4 py-3 bg-slate-800 border border-amber-500/20 rounded-lg
+                           text-amber-100 placeholder-amber-100/30 focus:outline-none focus:border-amber-500/40"
+              />
+              <p className="text-amber-100/40 text-xs mt-1">
+                Example: 3600 = 1 hour, 86400 = 1 day
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex gap-3">
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={onClose}
+            className="flex-1 px-6 py-3 bg-slate-800 hover:bg-slate-700 text-amber-100 
+                       rounded-lg transition-colors"
+          >
+            Cancel
+          </motion.button>
+          
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={handleSubmit}
+            className="flex-1 px-6 py-3 bg-gradient-to-r from-amber-600 to-amber-500 
+                       hover:from-amber-500 hover:to-amber-400 text-slate-950 
+                       rounded-lg transition-all duration-300
+                       shadow-[0_0_20px_rgba(251,191,36,0.3)]"
+          >
+            Confirm
+          </motion.button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+};
+
+export default ActionModal;
+-----AuctionsSection.jsx
+import { motion } from 'motion/react';
+import { useState, useEffect } from 'react';
+import { mockAuctions } from '../data/mockData';
+import { Clock, Gavel, TrendingUp } from 'lucide-react';
+import { ImageWithFallback } from './figma/ImageWithFallback';
+
+const AuctionsSection = ({ walletAddress, onLightning, onNFTClick }) => {
+  const [auctions, setAuctions] = useState(mockAuctions);
+  const [currentTime, setCurrentTime] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, []);
+
+  const formatTimeRemaining = (endTime) => {
+    const remaining = endTime.getTime() - currentTime;
+    if (remaining <= 0) return 'Ended';
+
+    const hours = Math.floor(remaining / (1000 * 60 * 60));
+    const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
+
+    return `${hours}h ${minutes}m ${seconds}s`;
+  };
+
+  const handleBid = (auction) => {
+    onLightning();
+    const bid = prompt(`Enter your bid (current: ${auction.currentBid} ETH):`);
+    if (bid && parseFloat(bid) > auction.currentBid) {
+      alert(`Bid placed: ${bid} ETH`);
+    } else if (bid) {
+      alert('Bid must be higher than current bid');
+    }
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      transition={{ duration: 0.5 }}
+      className="max-w-7xl mx-auto px-8 py-12"
+    >
+      <div className="mb-8">
+        <h2 className="text-3xl text-amber-400 tracking-wider mb-2">Sacred Auctions</h2>
+        <p className="text-amber-100/60">Compete for legendary artifacts in divine bidding wars</p>
+      </div>
+
+      {auctions.length === 0 ? (
+        <div className="text-center py-20">
+          <p className="text-amber-100/40 text-xl">No active auctions at this time</p>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {auctions.map((auction) => {
+            const timeRemaining = formatTimeRemaining(auction.endTime);
+            const isEnded = timeRemaining === 'Ended';
+            const isOwner = auction.nft.owner === walletAddress;
+            const isHighestBidder = auction.highestBidder === walletAddress;
+
+            return (
+              <motion.div
+                key={auction.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                whileHover={{ scale: 1.01 }}
+                className="bg-slate-900/50 backdrop-blur-sm border border-amber-500/20 rounded-xl 
+                           overflow-hidden hover:border-amber-500/40 transition-all duration-300
+                           shadow-lg hover:shadow-[0_0_40px_rgba(251,191,36,0.2)]"
+              >
+                <div className="flex flex-col md:flex-row">
+                  {/* NFT Image */}
+                  <div 
+                    className="md:w-1/3 h-64 md:h-auto cursor-pointer relative group"
+                    onClick={() => onNFTClick(auction.nft)}
+                  >
+                    <ImageWithFallback
+                      src={auction.nft.image}
+                      alt={auction.nft.name}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-r from-slate-900/50 via-transparent to-transparent" />
+                  </div>
+
+                  {/* Auction Details */}
+                  <div className="flex-1 p-6 md:p-8 space-y-6">
+                    <div>
+                      <div className="flex items-start justify-between mb-4">
+                        <div>
+                          <h3 className="text-2xl text-amber-100 tracking-wide mb-2">
+                            {auction.nft.name}
+                          </h3>
+                          <p className="text-sm text-amber-100/50">Token #{auction.nft.tokenId}</p>
+                        </div>
+                        <div className="px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40">
+                          <span className="text-xs text-amber-400 tracking-wider">
+                            {auction.nft.category}
+                          </span>
+                        </div>
+                      </div>
+
+                      <p className="text-amber-100/70 leading-relaxed">
+                        {auction.nft.description}
+                      </p>
+                    </div>
+
+                    {/* Auction Info Grid */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="bg-slate-800/50 rounded-lg p-4">
+                        <div className="text-amber-100/50 text-sm mb-1">Starting Price</div>
+                        <div className="text-amber-400 text-lg">{auction.startPrice} ETH</div>
+                      </div>
+                      
+                      <div className="bg-slate-800/50 rounded-lg p-4">
+                        <div className="text-amber-100/50 text-sm mb-1 flex items-center gap-1">
+                          <TrendingUp className="w-3 h-3" />
+                          Current Bid
+                        </div>
+                        <div className="text-amber-400 text-lg">{auction.currentBid} ETH</div>
+                      </div>
+                       
+                      <div className="bg-slate-800/50 rounded-lg p-4">
+                        <div className="text-amber-100/50 text-sm mb-1">Highest Bidder</div>
+                        <div className="text-amber-100 text-sm truncate">
+                          {auction.highestBidder ? `${auction.highestBidder.slice(0, 6)}...${auction.highestBidder.slice(-4)}` : 'None'}
+                        </div>
+                      </div>
+                       
+                      <div className="bg-slate-800/50 rounded-lg p-4">
+                        <div className="text-amber-100/50 text-sm mb-1 flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          Time Left
+                        </div>
+                        <div className={`text-lg ${isEnded ? 'text-red-400' : 'text-amber-400'}`}>
+                          {timeRemaining}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Bid Button */}
+                    {!isEnded && !isOwner && (
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => handleBid(auction)}
+                        disabled={isEnded}
+                        className={`
+                          w-full px-6 py-3 rounded-lg flex items-center justify-center gap-2
+                          transition-all duration-300
+                          ${isHighestBidder
+                            ? 'bg-gradient-to-r from-green-600 to-green-500 text-white shadow-[0_0_20px_rgba(34,197,94,0.3)]'
+                            : 'bg-gradient-to-r from-amber-600 to-amber-500 text-slate-950 shadow-[0_0_20px_rgba(251,191,36,0.3)]'
+                          }
+                          hover:shadow-[0_0_30px_rgba(251,191,36,0.5)]
+                        `}
+                      >
+                        <Gavel className="w-5 h-5" />
+                        <span className="text-lg tracking-wide">
+                          {isHighestBidder ? 'You are winning!' : 'Place Bid'}
+                        </span>
+                      </motion.button>
+                    )}
+
+                    {isEnded && (
+                      <div className="text-center py-3 bg-slate-800/50 rounded-lg">
+                        <p className="text-amber-100/70">
+                          Auction Ended - Winner: {auction.highestBidder ? `${auction.highestBidder.slice(0, 6)}...${auction.highestBidder.slice(-4)}` : 'No bids'}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            );
+          })}
+        </div>
+      )}
+    </motion.div>
+  );
+};
+
+export default AuctionsSection;
+-----CollectionsSection.jsx
+import { motion } from 'motion/react';
+import { useState } from 'react';
+import { NFTCard } from './NFTCard';
+import { mockNFTs } from '../data/mockData';
+import { Search, DollarSign, ShoppingBag, MessageSquare } from 'lucide-react';
+
+const categories = ['All', 'Gods', 'Titans', 'Heroes', 'Creatures', 'Artifacts'];
+
+export function CollectionsSection({ walletAddress, onLightning, onNFTClick }) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('All');
+
+  const filteredNFTs = mockNFTs
+    .filter(nft => selectedCategory === 'All' || nft.category === selectedCategory)
+    .filter(nft => nft.name.toLowerCase().includes(searchTerm.toLowerCase()));
+
+  const handleSell = (nft) => {
+    onLightning();
+    alert(`Listing ${nft.name} for sale`);
+  };
+
+  const handlePurchaseRequest = (nft) => {
+    onLightning();
+    const offer = prompt(`Enter your offer for ${nft.name} (ETH):`);
+    if (offer) {
+      alert(`Purchase request sent to owner for ${offer} ETH`);
+    }
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      transition={{ duration: 0.5 }}
+      className="max-w-7xl mx-auto px-8 py-12"
+    >
+      <div className="mb-8">
+        <h2 className="text-3xl text-amber-400 tracking-wider mb-2">Sacred Collections</h2>
+        <p className="text-amber-100/60">All divine NFTs ever blessed upon the blockchain</p>
+      </div>
+
+      {/* Search */}
+      <div className="mb-6">
+        <div className="relative">
+          <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-amber-400" />
+          <input
+            type="text"
+            placeholder="Search by name..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-12 pr-4 py-3 bg-slate-900/50 border border-amber-500/20 rounded-lg
+                       text-amber-100 placeholder-amber-100/30 focus:outline-none focus:border-amber-500/40"
+          />
+        </div>
+      </div>
+
+      {/* Category Filters */}
+      <div className="mb-8 flex gap-3 flex-wrap">
+        {categories.map((category) => (
+          <motion.button
+            key={category}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => {
+              onLightning();
+              setSelectedCategory(category);
+            }}
+            className={`
+              px-6 py-2 rounded-lg transition-all duration-300
+              ${selectedCategory === category
+                ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-slate-950 shadow-[0_0_20px_rgba(251,191,36,0.3)]'
+                : 'bg-slate-900/50 text-amber-100 border border-amber-500/20 hover:border-amber-500/40'
+              }
+            `}
+          >
+            {category}
+          </motion.button>
+        ))}
+      </div>
+
+      {/* NFT Grid */}
+      {filteredNFTs.length === 0 ? (
+        <div className="text-center py-20">
+          <p className="text-amber-100/40 text-xl">No NFTs found in this category</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          {filteredNFTs.map((nft) => {
+            const isOwner = nft.owner === walletAddress;
+            const isListed = nft.isListed;
+            
+            return (
+              <NFTCard
+                key={nft.id}
+                nft={nft}
+                onLightning={onLightning}
+                onClick={() => onNFTClick(nft)}
+                actions={
+                  <div className="flex gap-2">
+                    {isOwner ? (
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => handleSell(nft)}
+                        className="flex-1 px-4 py-2 bg-amber-600 hover:bg-amber-500 text-slate-950 
+                                   rounded-lg flex items-center justify-center gap-2 transition-colors"
+                      >
+                        <DollarSign className="w-4 h-4" />
+                        <span>Sell</span>
+                      </motion.button>
+                    ) : isListed ? (
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => {}}
+                        className="flex-1 px-4 py-2 bg-amber-600 hover:bg-amber-500 text-slate-950 
+                                   rounded-lg flex items-center justify-center gap-2 transition-colors"
+                      >
+                        <ShoppingBag className="w-4 h-4" />
+                        <span>Buy</span>
+                      </motion.button>
+                    ) : (
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => handlePurchaseRequest(nft)}
+                        className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white 
+                                   rounded-lg flex items-center justify-center gap-2 transition-colors"
+                      >
+                        <MessageSquare className="w-4 h-4" />
+                        <span>Request Purchase</span>
+                      </motion.button>
+                    )}
+                  </div>
+                }
+              />
+            );
+          })}
+        </div>
+      )}
+    </motion.div>
+  );
+}
+-----Footer.jsx
+import { motion } from 'motion/react';
+import { useEffect, useState, useRef } from 'react';
+import { NFTCard } from './NFTCard';
+import { mockNFTs, mockAuctions } from '../data/mockData';
+import { TrendingUp } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+
+export function Footer({ onLightning, onNFTClick }) {
+  const [scrollPosition, setScrollPosition] = useState(0);
+  const scrollRef = useRef(null);
+
+  // Mock price data
+  const [priceData, setPriceData] = useState([
+    { time: '10:00', avgPrice: 3.2 },
+    { time: '10:01', avgPrice: 3.5 },
+    { time: '10:02', avgPrice: 3.8 },
+    { time: '10:03', avgPrice: 4.1 },
+    { time: '10:04', avgPrice: 4.5 },
+    { time: '10:05', avgPrice: 4.3 },
+    { time: '10:06', avgPrice: 4.7 },
+  ]);
+
+  // Simulate price updates every minute
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = new Date();
+      const timeStr = `${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')}`;
+      const newPrice = 3 + Math.random() * 3;
+      
+      setPriceData(prev => {
+        const updated = [...prev.slice(1), { time: timeStr, avgPrice: parseFloat(newPrice.toFixed(2)) }];
+        return updated;
+      });
+    }, 60000); // Update every minute
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Auto-scroll effect
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setScrollPosition(prev => prev + 1);
+    }, 50);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const recentNFTs = mockNFTs.slice(0, 4);
+  const highestPriced = [...mockNFTs].sort((a, b) => b.price - a.price).slice(0, 4);
+  const auctionNFTs = mockAuctions.map(a => a.nft).slice(0, 4);
+
+  return (
+    <div className="border-t border-amber-500/20 bg-slate-950/80 backdrop-blur-md mt-20">
+      <div className="max-w-7xl mx-auto px-8 py-12 space-y-12">
+        {/* Recently Issued */}
+        <div>
+          <h3 className="text-2xl text-amber-400 tracking-wider mb-6 flex items-center gap-2">
+            <div className="w-1 h-8 bg-gradient-to-b from-amber-400 to-amber-600" />
+            Recently Issued
+          </h3>
+          <div className="relative overflow-hidden">
+            <motion.div
+              className="flex gap-6"
+              animate={{ x: -scrollPosition }}
+              style={{ width: 'max-content' }}
+            >
+              {[...recentNFTs, ...recentNFTs].map((nft, index) => (
+                <div key={`recent-${nft.id}-${index}`}>
+                  <NFTCard
+                    nft={nft}
+                    onLightning={onLightning}
+                    onClick={() => onNFTClick(nft)}
+                    compact
+                  />
+                </div>
+              ))}
+            </motion.div>
+          </div>
+        </div>
+
+        {/* Highest Priced */}
+        <div>
+          <h3 className="text-2xl text-amber-400 tracking-wider mb-6 flex items-center gap-2">
+            <div className="w-1 h-8 bg-gradient-to-b from-amber-400 to-amber-600" />
+            Highest Priced
+          </h3>
+          <div className="relative overflow-hidden">
+            <motion.div
+              className="flex gap-6"
+              animate={{ x: -scrollPosition * 0.7 }}
+              style={{ width: 'max-content' }}
+            >
+              {[...highestPriced, ...highestPriced].map((nft, index) => (
+                <div key={`highest-${nft.id}-${index}`}>
+                  <NFTCard
+                    nft={nft}
+                    onLightning={onLightning}
+                    onClick={() => onNFTClick(nft)}
+                    compact
+                  />
+                </div>
+              ))}
+            </motion.div>
+          </div>
+        </div>
+
+        {/* Active Auctions */}
+        <div>
+          <h3 className="text-2xl text-amber-400 tracking-wider mb-6 flex items-center gap-2">
+            <div className="w-1 h-8 bg-gradient-to-b from-amber-400 to-amber-600" />
+            Active Auctions
+          </h3>
+          <div className="relative overflow-hidden">
+            <motion.div
+              className="flex gap-6"
+              animate={{ x: -scrollPosition * 0.5 }}
+              style={{ width: 'max-content' }}
+            >
+              {[...auctionNFTs, ...auctionNFTs].map((nft, index) => (
+                <div key={`auction-${nft.id}-${index}`}>
+                  <NFTCard
+                    nft={nft}
+                    onLightning={onLightning}
+                    onClick={() => onNFTClick(nft)}
+                    compact
+                  />
+                </div>
+              ))}
+            </motion.div>
+          </div>
+        </div>
+
+        {/* Average Price Chart */}
+        <div>
+          <h3 className="text-2xl text-amber-400 tracking-wider mb-6 flex items-center gap-2">
+            <div className="w-1 h-8 bg-gradient-to-b from-amber-400 to-amber-600" />
+            <TrendingUp className="w-6 h-6" />
+            Average NFT Value
+          </h3>
+          <div className="bg-slate-900/50 backdrop-blur-sm border border-amber-500/20 rounded-xl p-6">
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={priceData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(251, 191, 36, 0.1)" />
+                <XAxis 
+                  dataKey="time" 
+                  stroke="rgba(251, 191, 36, 0.5)"
+                  style={{ fontSize: '12px' }}
+                />
+                <YAxis 
+                  stroke="rgba(251, 191, 36, 0.5)"
+                  style={{ fontSize: '12px' }}
+                  label={{ value: 'ETH', angle: -90, position: 'insideLeft', fill: 'rgba(251, 191, 36, 0.7)' }}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: 'rgba(15, 23, 42, 0.9)',
+                    border: '1px solid rgba(251, 191, 36, 0.2)',
+                    borderRadius: '8px',
+                    color: 'rgba(251, 191, 36, 1)',
+                  }}
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="avgPrice" 
+                  stroke="#fbbf24" 
+                  strokeWidth={3}
+                  dot={{ fill: '#fbbf24', r: 4 }}
+                  activeDot={{ r: 6 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+            <p className="text-amber-100/50 text-sm text-center mt-4">
+              Updates every minute • Real-time marketplace data
+            </p>
+          </div>
+        </div>
+
+        {/* Footer Info */}
+        <div className="text-center pt-8 border-t border-amber-500/10">
+          <p className="text-amber-100/40 text-sm">
+            © 2026 Olympus Market • A Divine NFT Marketplace • Blessed by Zeus
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+-----LandingPage.jsx
+import { useState, useEffect } from 'react';
+import { motion } from 'motion/react';
+import { Zap } from 'lucide-react';
+import { LightningEffect } from './LightningEffect';
+
+export function LandingPage({ onEnter }) {
+  const [scrollY, setScrollY] = useState(0);
+  const [showLightning, setShowLightning] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => setScrollY(window.scrollY);
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const handleEnter = () => {
+    setShowLightning(true);
+    setTimeout(() => {
+      onEnter();
+      setShowLightning(false);
+    }, 600);
+  };
+
+  return (
+    <div className="relative min-h-screen overflow-hidden bg-slate-950">
+      {showLightning && <LightningEffect />}
+      
+      {/* Video Background Effect */}
+      <div className="fixed inset-0 z-0">
+        <div 
+          className="absolute inset-0 opacity-40"
+          style={{
+            backgroundImage: `url('https://images.unsplash.com/photo-1712663640135-f5fc71dca38e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxvbHltcHVzJTIwY2xvdWRzJTIwZGl2aW5lfGVufDF8fHx8MTc2OTI4NzU3OXww&ixlib=rb-4.1.0&q=80&w=1080')`,
+            // backgroundImage: `url('.../.../zeus vs typhone.mp4')`,
+
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            transform: `translateY(${scrollY * 0.5}px)`,
+          }}
+        />
+        <div 
+          className="absolute inset-0 opacity-20"
+          style={{
+            backgroundImage: `url('https://images.unsplash.com/photo-1722325872613-a2a45f03350e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxncmVlayUyMHRlbXBsZSUyMG1hcmJsZXxlbnwxfHx8fDE3NjkyODc1Nzl8MA&ixlib=rb-4.1.0&q=80&w=1080')`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            transform: `translateY(${scrollY * 0.3}px)`,
+          }}
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-amber-500/10 via-slate-950/50 to-slate-950" />
+        <div className="absolute inset-0 bg-gradient-radial from-amber-400/5 via-transparent to-transparent" />
+      </div>
+
+      {/* Lightning Effect Overlay */}
+      <div className="fixed inset-0 z-0 pointer-events-none">
+        <div className="absolute top-20 left-1/4 w-1 h-96 bg-gradient-to-b from-amber-300/30 via-amber-500/10 to-transparent blur-xl animate-pulse" 
+             style={{ animationDuration: '3s' }} />
+        <div className="absolute top-40 right-1/3 w-1 h-96 bg-gradient-to-b from-blue-300/20 via-blue-500/5 to-transparent blur-xl animate-pulse" 
+             style={{ animationDuration: '4s', animationDelay: '1s' }} />
+      </div>
+
+      <div className="relative z-10 min-h-screen flex flex-col items-center justify-center px-8">
+        {/* Hero Section */}
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 1, delay: 0.2 }}
+          className="text-center max-w-4xl mb-16"
+        >
+          <motion.div
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ duration: 1.2, delay: 0.4 }}
+            className="mb-8"
+          >
+            <Zap className="w-24 h-24 mx-auto text-amber-400 drop-shadow-[0_0_20px_rgba(251,191,36,0.6)]" />
+          </motion.div>
+          
+          <motion.h1
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 1, delay: 0.6 }}
+            className="text-7xl mb-6 tracking-wider"
+            style={{
+              background: 'linear-gradient(to right, #fbbf24, #f59e0b, #fbbf24)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              textShadow: '0 0 60px rgba(251, 191, 36, 0.3)',
+            }}
+          >
+            OLYMPUS MARKET
+          </motion.h1>
+          
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 1, delay: 0.8 }}
+            className="text-xl text-amber-100/80 mb-4 tracking-wide"
+          >
+            Enter the Divine Realm of Sacred NFTs
+          </motion.p>
+          
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 1, delay: 1 }}
+            className="text-amber-100/60 leading-relaxed max-w-2xl mx-auto"
+          >
+            Where immortal artworks dwell among the gods. Trade legendary NFTs inspired by 
+            ancient Greek mythology in a marketplace blessed by Zeus himself.
+          </motion.p>
+        </motion.div>
+
+        {/* Main CTA Button */}
+        <motion.button
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.8, delay: 1.2 }}
+          onClick={handleEnter}
+          className="relative group px-12 py-4 bg-gradient-to-r from-amber-600 to-amber-500 
+                     hover:from-amber-500 hover:to-amber-400 text-slate-950 
+                     rounded-lg overflow-hidden transition-all duration-300
+                     shadow-[0_0_40px_rgba(251,191,36,0.4)] hover:shadow-[0_0_60px_rgba(251,191,36,0.6)]"
+        >
+          <span className="relative z-10 flex items-center gap-3 text-lg tracking-wider">
+            <Zap className="w-5 h-5" />
+            ENTER THE OLYMPUS
+            <Zap className="w-5 h-5" />
+          </span>
+          <div className="absolute inset-0 bg-gradient-to-r from-amber-300 to-amber-200 opacity-0 
+                          group-hover:opacity-100 transition-opacity duration-300" />
+        </motion.button>
+
+        {/* Scroll Content */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 1, delay: 1.4 }}
+          className="mt-32 mb-16 max-w-3xl"
+        >
+          <div 
+            className="text-center space-y-8 p-12 rounded-2xl backdrop-blur-sm
+                       bg-gradient-to-b from-amber-950/20 to-slate-950/20
+                       border border-amber-500/10 shadow-2xl"
+            style={{ transform: `translateY(${scrollY * 0.15}px)` }}
+          >
+            <h2 className="text-3xl text-amber-300 tracking-wide mb-6">The Sacred Marketplace</h2>
+            
+            <p className="text-amber-100/70 leading-relaxed">
+              Discover divine collectibles forged in the fires of Hephaestus. 
+              Each NFT carries the power of ancient myths—Gods, Titans, Heroes, and legendary Creatures 
+              await your command.
+            </p>
+            
+            <p className="text-amber-100/70 leading-relaxed">
+              Mint your own artifacts, trade in the celestial marketplace, 
+              participate in sacred auctions, and build your immortal collection.
+            </p>
+
+            <div className="border-t border-amber-500/20 pt-8 mt-8">
+              <p className="text-amber-200/50 text-sm tracking-wider">
+                FOR INQUIRIES: +1 (888) OLYMPUS
+              </p>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+
+      {/* Decorative Elements */}
+      <div className="fixed bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-slate-950 to-transparent pointer-events-none z-20" />
+    </div>
+  );
+}
+-----LightningEffect.jsx
+import { motion } from 'motion/react';
+
+export function LightningEffect() {
+  const randomX = Math.random() * 100;
+  
+  return (
+    <div className="fixed inset-0 z-[9999] pointer-events-none">
+      {/* Flash */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: [0, 0.4, 0.6, 0.3, 0] }}
+        transition={{ duration: 0.6, times: [0, 0.1, 0.3, 0.5, 1] }}
+        className="absolute inset-0 bg-amber-100"
+      />
+      
+      {/* Lightning Bolt */}
+      <motion.div
+        initial={{ opacity: 0, scaleY: 0 }}
+        animate={{ 
+          opacity: [0, 1, 0.8, 0],
+          scaleY: [0, 1, 1, 1]
+        }}
+        transition={{ duration: 0.4, times: [0, 0.1, 0.3, 1] }}
+        className="absolute top-0 w-1 h-full origin-top"
+        style={{
+          left: `${randomX}%`,
+          background: 'linear-gradient(to bottom, #fbbf24, #f59e0b, transparent)',
+          boxShadow: '0 0 20px #fbbf24, 0 0 40px #f59e0b',
+          filter: 'blur(1px)',
+        }}
+      />
+      
+      {/* Secondary Branch */}
+      <motion.div
+        initial={{ opacity: 0, scaleX: 0 }}
+        animate={{ 
+          opacity: [0, 0.8, 0],
+          scaleX: [0, 1, 1]
+        }}
+        transition={{ duration: 0.3, delay: 0.1, times: [0, 0.3, 1] }}
+        className="absolute h-1 w-32 origin-left"
+        style={{
+          left: `${randomX}%`,
+          top: '30%',
+          background: 'linear-gradient(to right, #fbbf24, transparent)',
+          boxShadow: '0 0 15px #fbbf24',
+          filter: 'blur(1px)',
+          transform: 'rotate(25deg)',
+        }}
+      />
+    </div>
+  );
+}
+-----MainPage.jsx
+import { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Wallet, ArrowUp } from 'lucide-react';
+import { StatusBar } from './StatusBar';
+import { Toolbar } from './Toolbar';
+import { MyNFTsSection } from './MyNFTsSection';
+import { MarketplaceSection } from './MarketplaceSection';
+import { CollectionsSection } from './CollectionsSection';
+import AuctionsSection from './AuctionsSection';
+import { MintNFTSection } from './MintNFTSection';
+import { Footer } from './Footer';
+import { LightningEffect } from './LightningEffect';
+import { NFTDetailModal } from './NFTDetailModal';
+import { mockNFTs } from '../data/mockData';
+
+export function MainPage({ walletConnected, walletAddress, onWalletAction }) {
+  const [activeSection, setActiveSection] = useState('marketplace');
+  const [showBackToTop, setShowBackToTop] = useState(false);
+  const [showLightning, setShowLightning] = useState(false);
+  const [selectedNFT, setSelectedNFT] = useState(null);
+  const [scrollY, setScrollY] = useState(0);
+  const contentRef = useRef(null);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      const scrollPosition = window.scrollY;
+      setScrollY(scrollPosition);
+      setShowBackToTop(scrollPosition > 800);
+    };
+
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const triggerLightning = () => {
+    setShowLightning(true);
+    setTimeout(() => setShowLightning(false), 600);
+  };
+
+  const handleSectionChange = (section) => {
+    setActiveSection(section);
+    triggerLightning();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const scrollToTop = () => {
+    triggerLightning();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950 relative overflow-hidden">
+      {showLightning && <LightningEffect />}
+      
+      {/* Background */}
+      <div className="fixed inset-0 z-0">
+        <div 
+          className="absolute inset-0 opacity-15"
+          style={{
+            backgroundImage: `url('https://images.unsplash.com/photo-1722325872613-a2a45f03350e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxncmVlayUyMHRlbXBsZSUyMG1hcmJsZXxlbnwxfHx8fDE3NjkyODc1Nzl8MA&ixlib=rb-4.1.0&q=80&w=1080')`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            transform: `translateY(${scrollY * 0.3}px)`,
+          }}
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-slate-950/80 via-slate-950/90 to-slate-950" />
+      </div>
+
+      {/* Ambient Light Effects */}
+      <div className="fixed inset-0 z-0 pointer-events-none">
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-amber-500/10 rounded-full blur-[120px]" />
+        <div className="absolute top-1/3 right-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-[120px]" />
+      </div>
+
+      <div className="relative z-10">
+        <StatusBar
+          walletConnected={walletConnected}
+          walletAddress={walletAddress}
+          onWalletAction={onWalletAction}
+          onLightning={triggerLightning}
+        />
+
+        <Toolbar
+          activeSection={activeSection}
+          walletConnected={walletConnected}
+          onSectionChange={handleSectionChange}
+        />
+
+        <div ref={contentRef} className="min-h-[calc(100vh-180px)]">
+          <AnimatePresence mode="wait">
+            {activeSection === 'my-nfts' && (
+              <MyNFTsSection 
+                key="my-nfts" 
+                walletAddress={walletAddress}
+                onLightning={triggerLightning}
+                onNFTClick={setSelectedNFT}
+              />
+            )}
+            {activeSection === 'marketplace' && (
+              <MarketplaceSection 
+                key="marketplace"
+                walletAddress={walletAddress}
+                onLightning={triggerLightning}
+                onNFTClick={setSelectedNFT}
+              />
+            )}
+            {activeSection === 'collections' && (
+              <CollectionsSection 
+                key="collections"
+                walletAddress={walletAddress}
+                onLightning={triggerLightning}
+                onNFTClick={setSelectedNFT}
+              />
+            )}
+            {activeSection === 'auctions' && (
+              <AuctionsSection 
+                key="auctions"
+                walletAddress={walletAddress}
+                onLightning={triggerLightning}
+                onNFTClick={setSelectedNFT}
+              />
+            )}
+            {activeSection === 'mint' && (
+              <MintNFTSection 
+                key="mint"
+                walletAddress={walletAddress}
+                onLightning={triggerLightning}
+              />
+            )}
+          </AnimatePresence>
+        </div>
+
+        <Footer onLightning={triggerLightning} onNFTClick={setSelectedNFT} />
+      </div>
+
+      {/* Back to Top Button */}
+      <AnimatePresence>
+        {showBackToTop && (
+          <motion.button
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            onClick={scrollToTop}
+            className="fixed bottom-8 right-8 z-50 p-4 bg-gradient-to-r from-amber-600 to-amber-500 
+                       rounded-full shadow-[0_0_30px_rgba(251,191,36,0.4)]
+                       hover:shadow-[0_0_50px_rgba(251,191,36,0.6)]
+                       transition-all duration-300 group"
+          >
+            <ArrowUp className="w-6 h-6 text-slate-950" />
+          </motion.button>
+        )}
+      </AnimatePresence>
+
+      {/* NFT Detail Modal */}
+      <AnimatePresence>
+        {selectedNFT && (
+          <NFTDetailModal
+            nft={selectedNFT}
+            onClose={() => setSelectedNFT(null)}
+            onLightning={triggerLightning}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+-----MarketplaceSection.jsx
+import { motion } from 'motion/react';
+import { useState } from 'react';
+import { NFTCard } from './NFTCard';
+import { mockNFTs } from '../data/mockData';
+import { Search, Filter, ShoppingBag, X } from 'lucide-react';
+
+export function MarketplaceSection({ walletAddress, onLightning, onNFTClick }) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [priceRange, setPriceRange] = useState([0, 10]);
+  const [showFilters, setShowFilters] = useState(false);
+
+  // Filter listed NFTs
+  const listedNFTs = mockNFTs
+    .filter(nft => nft.isListed)
+    .filter(nft => nft.name.toLowerCase().includes(searchTerm.toLowerCase()))
+    .filter(nft => nft.price >= priceRange[0] && nft.price <= priceRange[1])
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+  const handleBuy = (nft) => {
+    onLightning();
+    alert(`Purchasing ${nft.name} for ${nft.price} ETH`);
+  };
+
+  const handleCancelSale = (nft) => {
+    onLightning();
+    alert(`Canceling sale of ${nft.name}`);
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      transition={{ duration: 0.5 }}
+      className="max-w-7xl mx-auto px-8 py-12"
+    >
+      <div className="mb-8">
+        <motion.h2 
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.6, delay: 0.2 }}
+          className="text-3xl text-amber-400 tracking-wider mb-2"
+        >
+          Divine Marketplace
+        </motion.h2>
+        <motion.p 
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.6, delay: 0.3 }}
+          className="text-amber-100/60"
+        >
+          Acquire legendary NFTs blessed by the pantheon
+        </motion.p>
+      </div>
+
+      {/* Search and Filters */}
+      <div className="mb-8 space-y-4">
+        <div className="flex gap-4">
+          <div className="flex-1 relative">
+            <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-amber-400" />
+            <input
+              type="text"
+              placeholder="Search NFTs by name..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-12 pr-4 py-3 bg-slate-900/50 border border-amber-500/20 rounded-lg
+                         text-amber-100 placeholder-amber-100/30 focus:outline-none focus:border-amber-500/40"
+            />
+          </div>
+          
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => {
+              onLightning();
+              setShowFilters(!showFilters);
+            }}
+            className="px-6 py-3 bg-slate-900/50 border border-amber-500/20 rounded-lg
+                       hover:border-amber-500/40 text-amber-100 flex items-center gap-2"
+          >
+            <Filter className="w-5 h-5" />
+            <span>Filters</span>
+          </motion.button>
+        </div>
+
+        {/* Filter Panel */}
+        {showFilters && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="p-6 bg-slate-900/50 border border-amber-500/20 rounded-lg"
+          >
+            <div className="space-y-4">
+              <div>
+                <label className="block text-amber-100 mb-2">Price Range (ETH)</label>
+                <div className="flex items-center gap-4">
+                  <input
+                    type="number"
+                    min="0"
+                    max="10"
+                    step="0.1"
+                    value={priceRange[0]}
+                    onChange={(e) => setPriceRange([parseFloat(e.target.value), priceRange[1]])}
+                    className="flex-1 px-4 py-2 bg-slate-800 border border-amber-500/20 rounded-lg
+                               text-amber-100 focus:outline-none focus:border-amber-500/40"
+                  />
+                  <span className="text-amber-100/60">to</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="10"
+                    step="0.1"
+                    value={priceRange[1]}
+                    onChange={(e) => setPriceRange([priceRange[0], parseFloat(e.target.value)])}
+                    className="flex-1 px-4 py-2 bg-slate-800 border border-amber-500/20 rounded-lg
+                               text-amber-100 focus:outline-none focus:border-amber-500/40"
+                  />
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </div>
+
+      {/* NFT Grid */}
+      {listedNFTs.length === 0 ? (
+        <div className="text-center py-20">
+          <p className="text-amber-100/40 text-xl">No NFTs found in the marketplace</p>
+        </div>
+      ) : (
+        <motion.div 
+          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8"
+          initial="hidden"
+          animate="visible"
+          variants={{
+            visible: {
+              transition: {
+                staggerChildren: 0.1
+              }
+            }
+          }}
+        >
+          {listedNFTs.map((nft, index) => {
+            const isOwner = nft.owner === walletAddress;
+            
+            return (
+              <motion.div
+                key={nft.id}
+                variants={{
+                  hidden: { opacity: 0, y: 30 },
+                  visible: { opacity: 1, y: 0 }
+                }}
+                transition={{ duration: 0.5 }}
+              >
+                <NFTCard
+                  nft={nft}
+                  onLightning={onLightning}
+                  onClick={() => onNFTClick(nft)}
+                  actions={
+                    <div className="flex gap-2">
+                      {isOwner ? (
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => handleCancelSale(nft)}
+                          className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-500 text-white 
+                                     rounded-lg flex items-center justify-center gap-2 transition-colors"
+                        >
+                          <X className="w-4 h-4" />
+                          <span>Cancel Sale</span>
+                        </motion.button>
+                      ) : (
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => handleBuy(nft)}
+                          className="flex-1 px-4 py-2 bg-amber-600 hover:bg-amber-500 text-slate-950 
+                                     rounded-lg flex items-center justify-center gap-2 transition-colors"
+                        >
+                          <ShoppingBag className="w-4 h-4" />
+                          <span>Buy Now</span>
+                        </motion.button>
+                      )}
+                    </div>
+                  }
+                />
+              </motion.div>
+            );
+          })}
+        </motion.div>
+      )}
+    </motion.div>
+  );
+}
+-----MintNFTSection.jsx
+import { motion } from 'motion/react';
+import { useState } from 'react';
+import { Upload, Sparkles } from 'lucide-react';
+
+const categories = ['Gods', 'Titans', 'Heroes', 'Creatures', 'Artifacts'];
+
+export function MintNFTSection({ walletAddress, onLightning }) {
+  const [formData, setFormData] = useState({
+    name: '',
+    description: '',
+    category: 'Gods',
+    collection: '',
+    newCollection: false,
+  });
+  const [imagePreview, setImagePreview] = useState(null);
+
+  const handleImageUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleMint = () => {
+    onLightning();
+    if (!formData.name || !imagePreview) {
+      alert('Please fill in all required fields');
+      return;
+    }
+    alert(`Minting NFT: ${formData.name}`);
+    // Reset form
+    setFormData({
+      name: '',
+      description: '',
+      category: 'Gods',
+      collection: '',
+      newCollection: false,
+    });
+    setImagePreview(null);
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      transition={{ duration: 0.5 }}
+      className="max-w-7xl mx-auto px-8 py-12"
+    >
+      <div className="mb-8">
+        <h2 className="text-3xl text-amber-400 tracking-wider mb-2">Forge New Artifact</h2>
+        <p className="text-amber-100/60">Create and mint your own legendary NFT blessed by the gods</p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Form */}
+        <div className="space-y-6">
+          {/* Name */}
+          <div>
+            <label className="block text-amber-100 mb-2 tracking-wide">NFT Name *</label>
+            <input
+              type="text"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              placeholder="Enter the name of your divine artifact"
+              className="w-full px-4 py-3 bg-slate-900/50 border border-amber-500/20 rounded-lg
+                         text-amber-100 placeholder-amber-100/30 focus:outline-none focus:border-amber-500/40"
+            />
+          </div>
+
+          {/* Description */}
+          <div>
+            <label className="block text-amber-100 mb-2 tracking-wide">Description</label>
+            <textarea
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              placeholder="Tell the legend of your creation..."
+              rows={4}
+              className="w-full px-4 py-3 bg-slate-900/50 border border-amber-500/20 rounded-lg
+                         text-amber-100 placeholder-amber-100/30 focus:outline-none focus:border-amber-500/40
+                         resize-none"
+            />
+          </div>
+
+          {/* Category */}
+          <div>
+            <label className="block text-amber-100 mb-2 tracking-wide">Category</label>
+            <select
+              value={formData.category}
+              onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+              className="w-full px-4 py-3 bg-slate-900/50 border border-amber-500/20 rounded-lg
+                         text-amber-100 focus:outline-none focus:border-amber-500/40"
+            >
+              {categories.map((cat) => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Collection */}
+          <div>
+            <label className="block text-amber-100 mb-2 tracking-wide">Collection</label>
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  checked={formData.newCollection}
+                  onChange={(e) => setFormData({ ...formData, newCollection: e.target.checked })}
+                  className="w-4 h-4"
+                />
+                <span className="text-amber-100/70">Create new collection</span>
+              </div>
+              
+              {formData.newCollection ? (
+                <input
+                  type="text"
+                  value={formData.collection}
+                  onChange={(e) => setFormData({ ...formData, collection: e.target.value })}
+                  placeholder="Enter new collection name"
+                  className="w-full px-4 py-3 bg-slate-900/50 border border-amber-500/20 rounded-lg
+                             text-amber-100 placeholder-amber-100/30 focus:outline-none focus:border-amber-500/40"
+                />
+              ) : (
+                <select
+                  value={formData.collection}
+                  onChange={(e) => setFormData({ ...formData, collection: e.target.value })}
+                  className="w-full px-4 py-3 bg-slate-900/50 border border-amber-500/20 rounded-lg
+                             text-amber-100 focus:outline-none focus:border-amber-500/40"
+                >
+                  <option value="">Select existing collection</option>
+                  <option value="olympian-gods">Olympian Gods</option>
+                  <option value="ancient-titans">Ancient Titans</option>
+                  <option value="legendary-heroes">Legendary Heroes</option>
+                </select>
+              )}
+            </div>
+          </div>
+
+          {/* Image Upload */}
+          <div>
+            <label className="block text-amber-100 mb-2 tracking-wide">Artwork *</label>
+            <div className="relative">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleImageUpload}
+                className="hidden"
+                id="image-upload"
+              />
+              <label
+                htmlFor="image-upload"
+                className="block w-full px-4 py-8 bg-slate-900/50 border-2 border-dashed border-amber-500/20 
+                           rounded-lg cursor-pointer hover:border-amber-500/40 transition-colors"
+              >
+                <div className="text-center">
+                  <Upload className="w-12 h-12 text-amber-400 mx-auto mb-3" />
+                  <p className="text-amber-100 mb-1">Click to upload image</p>
+                  <p className="text-amber-100/50 text-sm">PNG, JPG, GIF up to 10MB</p>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          {/* Mint Button */}
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={handleMint}
+            className="w-full px-6 py-4 bg-gradient-to-r from-amber-600 to-amber-500 
+                       hover:from-amber-500 hover:to-amber-400 text-slate-950 
+                       rounded-lg flex items-center justify-center gap-3
+                       shadow-[0_0_30px_rgba(251,191,36,0.4)] hover:shadow-[0_0_50px_rgba(251,191,36,0.6)]
+                       transition-all duration-300"
+          >
+            <Sparkles className="w-5 h-5" />
+            <span className="text-lg tracking-wider">MINT NFT</span>
+            <Sparkles className="w-5 h-5" />
+          </motion.button>
+        </div>
+
+        {/* Preview */}
+        <div className="lg:sticky lg:top-32 h-fit">
+          <div className="bg-slate-900/50 backdrop-blur-sm border border-amber-500/20 rounded-xl p-6">
+            <h3 className="text-xl text-amber-400 tracking-wide mb-4">Preview</h3>
+            
+            <div className="aspect-[1/1.618] bg-slate-800 rounded-lg overflow-hidden mb-4">
+              {imagePreview ? (
+                <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center">
+                  <div className="text-center text-amber-100/30">
+                    <Upload className="w-16 h-16 mx-auto mb-3" />
+                    <p>Upload image to preview</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <div className="text-amber-100/50 text-sm mb-1">Name</div>
+                <div className="text-amber-100">{formData.name || 'Untitled'}</div>
+              </div>
+              
+              <div>
+                <div className="text-amber-100/50 text-sm mb-1">Category</div>
+                <div className="inline-block px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40">
+                  <span className="text-xs text-amber-400 tracking-wider">{formData.category}</span>
+                </div>
+              </div>
+
+              {formData.description && (
+                <div>
+                  <div className="text-amber-100/50 text-sm mb-1">Description</div>
+                  <div className="text-amber-100/70 text-sm">{formData.description}</div>
+                </div>
+              )}
+
+              <div>
+                <div className="text-amber-100/50 text-sm mb-1">Creator</div>
+                <div className="text-amber-100 text-sm">{walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+-----MyNFTsSection.jsx
+import { motion } from 'motion/react';
+import { useState } from 'react';
+import { NFTCard } from './NFTCard';
+import { mockNFTs } from '../data/mockData';
+import { DollarSign, Send, Gavel } from 'lucide-react';
+import ActionModal from './ActionModal';
+
+export function MyNFTsSection({ walletAddress, onLightning, onNFTClick }) {
+  const [actionModal, setActionModal] = useState(null);
+  
+  // Mock: filter NFTs owned by user
+  const myNFTs = mockNFTs.filter(nft => nft.owner === walletAddress || [1, 5, 7].includes(nft.tokenId));
+
+  const handleAction = (type, nft) => {
+    onLightning();
+    setActionModal({ type, nft });
+  };
+
+  const handleCloseModal = () => {
+    setActionModal(null);
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      transition={{ duration: 0.5 }}
+      className="max-w-7xl mx-auto px-8 py-12"
+    >
+      <div className="mb-8">
+        <h2 className="text-3xl text-amber-400 tracking-wider mb-2">My Sacred Collection</h2>
+        <p className="text-amber-100/60">NFTs blessed by the gods and owned by your wallet</p>
+      </div>
+
+      {myNFTs.length === 0 ? (
+        <div className="text-center py-20">
+          <p className="text-amber-100/40 text-xl">Your divine vault is empty</p>
+          <p className="text-amber-100/30 mt-2">Acquire NFTs from the Marketplace or mint your own</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          {myNFTs.map((nft) => (
+            <NFTCard
+              key={nft.id}
+              nft={nft}
+              onLightning={onLightning}
+              onClick={() => onNFTClick(nft)}
+              actions={
+                <div className="flex gap-2">
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => handleAction('sell', nft)}
+                    className="flex-1 px-3 py-2 bg-amber-600 hover:bg-amber-500 text-slate-950 
+                               rounded-lg flex items-center justify-center gap-2 transition-colors"
+                  >
+                    <DollarSign className="w-4 h-4" />
+                    <span className="text-sm">Sell</span>
+                  </motion.button>
+                  
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => handleAction('transfer', nft)}
+                    className="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white 
+                               rounded-lg flex items-center justify-center gap-2 transition-colors"
+                  >
+                    <Send className="w-4 h-4" />
+                    <span className="text-sm">Transfer</span>
+                  </motion.button>
+                  
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => handleAction('auction', nft)}
+                    className="flex-1 px-3 py-2 bg-purple-600 hover:bg-purple-500 text-white 
+                               rounded-lg flex items-center justify-center gap-2 transition-colors"
+                  >
+                    <Gavel className="w-4 h-4" />
+                    <span className="text-sm">Auction</span>
+                  </motion.button>
+                </div>
+              }
+            />
+          ))}
+        </div>
+      )}
+
+      {actionModal && (
+        <ActionModal
+          type={actionModal.type}
+          nft={actionModal.nft}
+          onClose={handleCloseModal}
+          onLightning={onLightning}
+        />
+      )}
+    </motion.div>
+  );
+}
+-----NFTCard.jsx
+import { motion } from 'motion/react';
+import { Heart, Zap } from 'lucide-react';
+import { useState } from 'react';
+import { ImageWithFallback } from './figma/ImageWithFallback';
+
+// Golden ratio: 1.618
+const GOLDEN_RATIO = 1.618;
+
+export function NFTCard({ nft, onLightning, onClick, actions, compact = false }) {
+  const [isFavorite, setIsFavorite] = useState(nft.isFavorite || false);
+  const [imageError, setImageError] = useState(false);
+
+  const handleFavorite = (e) => {
+    e.stopPropagation();
+    onLightning();
+    setIsFavorite(!isFavorite);
+  };
+
+  const handleActionClick = (e) => {
+    e.stopPropagation();
+  };
+
+  const cardWidth = compact ? 280 : 350;
+  const cardHeight = cardWidth / GOLDEN_RATIO;
+
+  return (
+    <motion.div
+      whileHover={{ y: -8, scale: 1.02 }}
+      transition={{ 
+        duration: 0.3,
+        type: "spring",
+        stiffness: 300,
+        damping: 20
+      }}
+      onClick={onClick}
+      className="group cursor-pointer"
+      style={{ width: cardWidth }}
+    >
+      <div 
+        className="relative overflow-hidden rounded-xl bg-slate-900/50 backdrop-blur-sm
+                   border border-amber-500/20 hover:border-amber-500/40
+                   shadow-lg hover:shadow-[0_0_40px_rgba(251,191,36,0.2)]
+                   transition-all duration-300"
+      >
+        {/* Image Container */}
+        <div 
+          className="relative overflow-hidden bg-slate-800"
+          style={{ height: cardHeight * 0.65 }}
+        >
+          <ImageWithFallback
+            src={nft.image}
+            alt={nft.name}
+            className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+          />
+          
+          {/* Overlay Gradient */}
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-transparent opacity-60" />
+          
+          {/* Favorite Button */}
+          <motion.button
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={handleFavorite}
+            className="absolute top-3 right-3 p-2 rounded-full bg-slate-900/80 backdrop-blur-sm
+                       hover:bg-slate-800 transition-colors duration-200"
+          >
+            <Heart 
+              className={`w-5 h-5 ${isFavorite ? 'fill-amber-500 text-amber-500' : 'text-amber-100'}`}
+            />
+          </motion.button>
+
+          {/* Category Badge */}
+          <div className="absolute top-3 left-3 px-3 py-1 rounded-full bg-amber-500/90 backdrop-blur-sm">
+            <span className="text-xs text-slate-950 tracking-wider">{nft.category}</span>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="p-4 space-y-3">
+          <div>
+            <h3 className="text-lg text-amber-100 tracking-wide mb-1 truncate">{nft.name}</h3>
+            <p className="text-sm text-amber-100/50">Token #{nft.tokenId}</p>
+          </div>
+
+          {/* Price */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Zap className="w-4 h-4 text-amber-500" />
+              <span className="text-xl text-amber-400">{nft.price} ETH</span>
+            </div>
+          </div>
+
+          {/* Actions */}
+          {actions && (
+            <div onClick={handleActionClick} className="pt-3 border-t border-amber-500/10">
+              {actions}
+            </div>
+          )}
+        </div>
+
+        {/* Hover Ripple Effect */}
+        <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
+          <div className="absolute inset-0 bg-gradient-to-r from-amber-500/5 via-amber-400/10 to-amber-500/5 
+                          animate-pulse" />
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+-----NFTDetailModal.jsx
+import { motion } from 'motion/react';
+import { X, User, Wallet, Tag, Calendar } from 'lucide-react';
+import { ImageWithFallback } from './figma/ImageWithFallback';
+
+export function NFTDetailModal({ nft, onClose, onLightning }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      onClick={onClose}
+      className="fixed inset-0 z-[100] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto"
+    >
+      <motion.div
+        initial={{ scale: 0.9, opacity: 0, y: 20 }}
+        animate={{ scale: 1, opacity: 1, y: 0 }}
+        exit={{ scale: 0.9, opacity: 0, y: 20 }}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-slate-900 border border-amber-500/20 rounded-2xl max-w-4xl w-full 
+                   shadow-[0_0_80px_rgba(251,191,36,0.2)] my-8"
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between p-6 border-b border-amber-500/20">
+          <h2 className="text-3xl text-amber-400 tracking-wider">NFT Details</h2>
+          <motion.button
+            whileHover={{ scale: 1.1, rotate: 90 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={onClose}
+            className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
+          >
+            <X className="w-6 h-6 text-amber-100" />
+          </motion.button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 p-6">
+          {/* Image */}
+          <div className="space-y-4">
+            <div className="aspect-square rounded-xl overflow-hidden bg-slate-800 shadow-2xl">
+              <ImageWithFallback
+                src={nft.image}
+                alt={nft.name}
+                className="w-full h-full object-cover"
+              />
+            </div>
+            
+            {/* Category Badge */}
+            <div className="flex justify-center">
+              <div className="px-6 py-2 rounded-full bg-amber-500/20 border border-amber-500/40">
+                <span className="text-amber-400 tracking-wider">{nft.category}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Details */}
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-3xl text-amber-100 tracking-wide mb-2">{nft.name}</h3>
+              <div className="flex items-center gap-2 text-amber-100/50">
+                <Tag className="w-4 h-4" />
+                <span>Token #{nft.tokenId}</span>
+              </div>
+            </div>
+
+            {/* Price */}
+            <div className="p-4 bg-slate-800/50 rounded-lg">
+              <div className="text-amber-100/60 text-sm mb-1">Current Price</div>
+              <div className="text-4xl text-amber-400">{nft.price} ETH</div>
+            </div>
+
+            {/* Info Grid */}
+            <div className="space-y-3">
+              <div className="flex items-start gap-3 p-3 bg-slate-800/30 rounded-lg">
+                <User className="w-5 h-5 text-amber-400 mt-0.5" />
+                <div className="flex-1">
+                  <div className="text-amber-100/60 text-sm mb-1">Creator</div>
+                  <div className="text-amber-100 break-all">{nft.creator}</div>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3 p-3 bg-slate-800/30 rounded-lg">
+                <Wallet className="w-5 h-5 text-amber-400 mt-0.5" />
+                <div className="flex-1">
+                  <div className="text-amber-100/60 text-sm mb-1">Owner</div>
+                  <div className="text-amber-100 break-all">{nft.owner}</div>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3 p-3 bg-slate-800/30 rounded-lg">
+                <Calendar className="w-5 h-5 text-amber-400 mt-0.5" />
+                <div className="flex-1">
+                  <div className="text-amber-100/60 text-sm mb-1">Created</div>
+                  <div className="text-amber-100">{nft.createdAt.toLocaleDateString()}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Description */}
+            <div>
+              <h4 className="text-amber-400 mb-2 tracking-wide">Description</h4>
+              <p className="text-amber-100/70 leading-relaxed">{nft.description}</p>
+            </div>
+
+            {/* Purchase Price if applicable */}
+            {nft.purchasePrice !== undefined && nft.purchasePrice > 0 && (
+              <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                <div className="text-amber-100/60 text-sm mb-1">Purchased For</div>
+                <div className="text-2xl text-amber-400">{nft.purchasePrice} ETH</div>
+              </div>
+            )}
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+-----StatusBar.jsx
+import { Wallet, Zap } from 'lucide-react';
+import { motion } from 'motion/react';
+
+export function StatusBar({ walletConnected, walletAddress, onWalletAction, onLightning }) {
+  const handleClick = () => {
+    onLightning();
+    setTimeout(() => onWalletAction(), 300);
+  };
+
+  return (
+    <div className="sticky top-0 z-40 backdrop-blur-md bg-slate-950/80 border-b border-amber-500/20">
+      <div className="max-w-7xl mx-auto px-8 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Zap className="w-8 h-8 text-amber-400" />
+          <h1 className="text-2xl tracking-wider bg-gradient-to-r from-amber-400 to-amber-600 
+                         bg-clip-text text-transparent">
+            OLYMPUS MARKET
+          </h1>
+        </div>
+
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={handleClick}
+          className={`
+            px-6 py-2.5 rounded-lg flex items-center gap-2 transition-all duration-300
+            ${walletConnected 
+              ? 'bg-gradient-to-r from-green-600 to-green-500 hover:from-green-500 hover:to-green-400 shadow-[0_0_20px_rgba(34,197,94,0.3)]' 
+              : 'bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 shadow-[0_0_20px_rgba(251,191,36,0.3)]'
+            }
+          `}
+        >
+          <Wallet className="w-4 h-4 text-slate-950" />
+          <span className="text-slate-950 tracking-wide">
+            {walletConnected ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}` : 'Connect Wallet'}
+          </span>
+        </motion.button>
+      </div>
+    </div>
+  );
+}
+-----Toolbar.jsx
+import { Package, ShoppingCart, Layers, Gavel, Sparkles } from 'lucide-react';
+import { motion } from 'motion/react';
+
+// Sections array
+const sections = [
+  { id: 'my-nfts', label: 'My NFTs', icon: Package, requiresWallet: true },
+  { id: 'marketplace', label: 'Marketplace', icon: ShoppingCart, requiresWallet: false },
+  { id: 'collections', label: 'Collections', icon: Layers, requiresWallet: false },
+  { id: 'auctions', label: 'Auctions', icon: Gavel, requiresWallet: false },
+  { id: 'mint', label: 'Mint NFT', icon: Sparkles, requiresWallet: true },
+];
+
+export function Toolbar({ activeSection, walletConnected, onSectionChange }) {
+  return (
+    <div className="sticky top-[73px] z-30 backdrop-blur-md bg-slate-950/60 border-b border-amber-500/10">
+      <div className="max-w-7xl mx-auto px-8 py-4">
+        <div className="flex items-center justify-center gap-4 flex-wrap">
+          {sections.map((section) => {
+            const isActive = activeSection === section.id;
+            const isDisabled = section.requiresWallet && !walletConnected;
+            const Icon = section.icon;
+
+            return (
+              <motion.button
+                key={section.id}
+                whileHover={!isDisabled ? { scale: 1.05 } : {}}
+                whileTap={!isDisabled ? { scale: 0.95 } : {}}
+                onClick={() => !isDisabled && onSectionChange(section.id)}
+                disabled={isDisabled}
+                className={`
+                  relative px-6 py-3 rounded-lg flex items-center gap-2 transition-all duration-300
+                  ${isActive 
+                    ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-slate-950 shadow-[0_0_30px_rgba(251,191,36,0.4)]' 
+                    : isDisabled
+                      ? 'bg-slate-800/50 text-slate-600 cursor-not-allowed'
+                      : 'bg-slate-800/30 text-amber-100 hover:bg-slate-800/50 hover:text-amber-400'
+                  }
+                `}
+              >
+                <Icon className="w-4 h-4" />
+                <span className="tracking-wide">{section.label}</span>
+                
+                {isActive && (
+                  <motion.div
+                    layoutId="activeTab"
+                    className="absolute inset-0 bg-gradient-to-r from-amber-600 to-amber-500 rounded-lg -z-10"
+                    transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
+                  />
+                )}
+              </motion.button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+-----mockData.js
+// mockData.js
+
+// Mock NFTs
+export const mockNFTs = [
+  {
+    id: '1',
+    tokenId: 1,
+    name: 'Zeus - King of Gods',
+    description: 'The supreme ruler of Mount Olympus, wielder of lightning and keeper of cosmic order.',
+    image: 'https://images.unsplash.com/photo-1595650172217-62a60375c9e1?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx6ZXVzJTIwbGlnaHRuaW5nJTIwc3Rvcm18ZW58MXx8fHwxNzY5Mjg3NTgwfDA&ixlib=rb-4.1.0&q=80&w=1080',
+    price: 5.5,
+    creator: '0x1234...5678',
+    owner: '0x1234...5678',
+    category: 'Gods',
+    isListed: true,
+    createdAt: new Date('2026-01-15'),
+  },
+  {
+    id: '2',
+    tokenId: 2,
+    name: 'Athena - Goddess of Wisdom',
+    description: 'Born from the head of Zeus, she embodies wisdom, strategy, and just warfare.',
+    image: 'https://images.unsplash.com/photo-1722781874251-ef44c9e88392?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxhdGhlbmElMjB3aXNkb20lMjBvd2x8ZW58MXx8fHwxNzY5Mjg3NTgxfDA&ixlib=rb-4.1.0&q=80&w=1080',
+    price: 4.2,
+    creator: '0x2345...6789',
+    owner: '0xabcd...efgh',
+    category: 'Gods',
+    isListed: true,
+    createdAt: new Date('2026-01-16'),
+  },
+  {
+    id: '3',
+    tokenId: 3,
+    name: 'Poseidon - Lord of Seas',
+    description: 'Ruler of oceans and earthquakes, brother to Zeus, master of the trident.',
+    image: 'https://images.unsplash.com/photo-1719257726973-60ce7f126f55?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxhbmNpZW50JTIwZ3JlZWslMjBhcnR8ZW58MXx8fHwxNzY5Mjg3NTgwfDA&ixlib=rb-4.1.0&q=80&w=1080',
+    price: 3.8,
+    creator: '0x3456...789a',
+    owner: '0x3456...789a',
+    category: 'Gods',
+    isListed: true,
+    createdAt: new Date('2026-01-17'),
+  },
+  {
+    id: '4',
+    tokenId: 4,
+    name: 'Cronus - Titan of Time',
+    description: 'Father of the Olympian gods, ruler of the Golden Age before his defeat.',
+    image: 'https://images.unsplash.com/photo-1758793918720-c3ac2cc5401f?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxncmVlayUyMG15dGhvbG9neSUyMGNyZWF0dXJlfGVufDF8fHx8MTc2OTI4NzU4MXww&ixlib=rb-4.1.0&q=80&w=1080',
+    price: 6.3,
+    creator: '0x4567...89ab',
+    owner: '0x4567...89ab',
+    category: 'Titans',
+    isListed: true,
+    createdAt: new Date('2026-01-18'),
+  },
+  {
+    id: '5',
+    tokenId: 5,
+    name: 'Hercules - Divine Hero',
+    description: 'Son of Zeus, the strongest of all mortals, completer of the Twelve Labors.',
+    image: 'https://images.unsplash.com/photo-1758452227784-d878b8b07f28?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxnb2xkJTIwc2FjcmVkJTIwbGlnaHR8ZW58MXx8fHwxNzY5Mjg3NTgwfDA&ixlib=rb-4.1.0&q=80&w=1080',
+    price: 2.9,
+    creator: '0x5678...9abc',
+    owner: '0x5678...9abc',
+    category: 'Heroes',
+    isListed: false,
+    createdAt: new Date('2026-01-19'),
+  },
+  {
+    id: '6',
+    tokenId: 6,
+    name: 'Medusa - Gorgon Queen',
+    description: 'Once beautiful, now cursed with serpent hair and a gaze that turns all to stone.',
+    image: 'https://images.unsplash.com/photo-1712663640135-f5fc71dca38e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxvbHltcHVzJTIwY2xvdWRzJTIwZGl2aW5lfGVufDF8fHx8MTc2OTI4NzU3OXww&ixlib=rb-4.1.0&q=80&w=1080',
+    price: 3.5,
+    creator: '0x6789...abcd',
+    owner: '0x6789...abcd',
+    category: 'Creatures',
+    isListed: true,
+    createdAt: new Date('2026-01-20'),
+  },
+  {
+    id: '7',
+    tokenId: 7,
+    name: 'Aegis Shield',
+    description: "Zeus's legendary shield, later wielded by Athena, bearing the head of Medusa.",
+    image: 'https://images.unsplash.com/photo-1722325872613-a2a45f03350e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxncmVlayUyMHRlbXBsZSUyMG1hcmJsZXxlbnwxfHx8fDE3NjkyODc1Nzl8MA&ixlib=rb-4.1.0&q=80&w=1080',
+    price: 4.8,
+    creator: '0x789a...bcde',
+    owner: '0x789a...bcde',
+    category: 'Artifacts',
+    isListed: true,
+    createdAt: new Date('2026-01-21'),
+  },
+  {
+    id: '8',
+    tokenId: 8,
+    name: 'Apollo - God of Light',
+    description: 'God of sun, music, poetry, prophecy, and healing. Twin brother of Artemis.',
+    image: 'https://images.unsplash.com/photo-1595650172217-62a60375c9e1?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx6ZXVzJTIwbGlnaHRuaW5nJTIwc3Rvcm18ZW58MXx8fHwxNzY5Mjg3NTgwfDA&ixlib=rb-4.1.0&q=80&w=1080',
+    price: 5.1,
+    creator: '0x89ab...cdef',
+    owner: '0x89ab...cdef',
+    category: 'Gods',
+    isListed: false,
+    createdAt: new Date('2026-01-22'),
+  },
+];
+
+// Mock Auctions
+export const mockAuctions = [
+  {
+    id: 'a1',
+    nft: mockNFTs[0],
+    startPrice: 5.0,
+    currentBid: 6.2,
+    highestBidder: '0xaaa1...bbb1',
+    endTime: new Date(Date.now() + 3600000), // 1 hour from now
+    isActive: true,
+  },
+  {
+    id: 'a2',
+    nft: mockNFTs[3],
+    startPrice: 6.0,
+    currentBid: 7.5,
+    highestBidder: '0xaaa2...bbb2',
+    endTime: new Date(Date.now() + 7200000), // 2 hours from now
+    isActive: true,
+  },
+  {
+    id: 'a3',
+    nft: mockNFTs[6],
+    startPrice: 4.5,
+    currentBid: 5.8,
+    highestBidder: '0xaaa3...bbb3',
+    endTime: new Date(Date.now() + 10800000), // 3 hours from now
+    isActive: true,
+  },
+];
+-----index.js
+// NFT Object
+export const NFT = {
+  id: '',
+  tokenId: 0,
+  name: '',
+  description: '',
+  image: '',
+  price: 0,
+  creator: '',
+  owner: '',
+  category: 'Gods', // Example default category, you can update accordingly
+  purchasePrice: undefined,
+  isListed: false,
+  isFavorite: false,
+  createdAt: new Date(),
+};
+
+// Auction Object
+export const Auction = {
+  id: '',
+  nft: NFT, // Reference to NFT object
+  startPrice: 0,
+  currentBid: 0,
+  highestBidder: null,
+  endTime: new Date(),
+  isActive: false,
+};
+
+// PurchaseRequest Object
+export const PurchaseRequest = {
+  id: '',
+  nftId: '',
+  from: '',
+  offeredPrice: 0,
+  status: 'pending', // Example default status
+};
+-----App.jsx
+import { useState, useEffect } from 'react';
+import { LandingPage } from './components/LandingPage';
+import { MainPage } from './components/MainPage';
+import { motion, AnimatePresence } from 'motion/react';
+
+export default function App() {
+  const [currentPage, setCurrentPage] = useState('landing'); // Removed type annotation
+  const [walletConnected, setWalletConnected] = useState(false);
+  const [walletAddress, setWalletAddress] = useState('');
+
+  const handleEnterMain = () => {
+    setCurrentPage('main');
+  };
+
+  const handleWalletConnect = () => {
+    if (walletConnected) {
+      setWalletConnected(false);
+      setWalletAddress('');
+      setCurrentPage('landing');
+    } else {
+      // Mock wallet connection
+      const mockAddress = '0x' + Math.random().toString(16).substr(2, 40);
+      setWalletAddress(mockAddress);
+      setWalletConnected(true);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950">
+      <AnimatePresence mode="wait">
+        {currentPage === 'landing' ? (
+          <motion.div
+            key="landing"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={{ duration: 0.8 }}
+          >
+            <LandingPage onEnter={handleEnterMain} />
+          </motion.div>
+        ) : (
+          <motion.div
+            key="main"
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.8 }}
+          >
+            <MainPage
+              walletConnected={walletConnected}
+              walletAddress={walletAddress}
+              onWalletAction={handleWalletConnect}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+-----main.jsx
+import { createRoot } from 'react-dom/client';
+import App from './App.jsx';  // Change the import from .tsx to .js
+import './index.css';
+
+createRoot(document.getElementById('root')).render(<App />);
+-----index.html
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Web3 NFT Marketplace Design</title>
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script> <!-- Changed from main.tsx to main.js -->
+  </body>
+</html>
+-----vite.config.js
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react-swc';
+import path from 'path';
+
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
+    alias: {
+      'vaul@1.1.2': 'vaul',
+      'sonner@2.0.3': 'sonner',
+      'recharts@2.15.2': 'recharts',
+      'react-resizable-panels@2.1.7': 'react-resizable-panels',
+      'react-hook-form@7.55.0': 'react-hook-form',
+      'react-day-picker@8.10.1': 'react-day-picker',
+      'next-themes@0.4.6': 'next-themes',
+      'lucide-react@0.487.0': 'lucide-react',
+      'input-otp@1.4.2': 'input-otp',
+      'embla-carousel-react@8.6.0': 'embla-carousel-react',
+      'cmdk@1.1.1': 'cmdk',
+      'class-variance-authority@0.7.1': 'class-variance-authority',
+      '@radix-ui/react-tooltip@1.1.8': '@radix-ui/react-tooltip',
+      '@radix-ui/react-toggle@1.1.2': '@radix-ui/react-toggle',
+      '@radix-ui/react-toggle-group@1.1.2': '@radix-ui/react-toggle-group',
+      '@radix-ui/react-tabs@1.1.3': '@radix-ui/react-tabs',
+      '@radix-ui/react-switch@1.1.3': '@radix-ui/react-switch',
+      '@radix-ui/react-slot@1.1.2': '@radix-ui/react-slot',
+      '@radix-ui/react-slider@1.2.3': '@radix-ui/react-slider',
+      '@radix-ui/react-separator@1.1.2': '@radix-ui/react-separator',
+      '@radix-ui/react-select@2.1.6': '@radix-ui/react-select',
+      '@radix-ui/react-scroll-area@1.2.3': '@radix-ui/react-scroll-area',
+      '@radix-ui/react-radio-group@1.2.3': '@radix-ui/react-radio-group',
+      '@radix-ui/react-progress@1.1.2': '@radix-ui/react-progress',
+      '@radix-ui/react-popover@1.1.6': '@radix-ui/react-popover',
+      '@radix-ui/react-navigation-menu@1.2.5': '@radix-ui/react-navigation-menu',
+      '@radix-ui/react-menubar@1.1.6': '@radix-ui/react-menubar',
+      '@radix-ui/react-label@2.1.2': '@radix-ui/react-label',
+      '@radix-ui/react-hover-card@1.1.6': '@radix-ui/react-hover-card',
+      '@radix-ui/react-dropdown-menu@2.1.6': '@radix-ui/react-dropdown-menu',
+      '@radix-ui/react-dialog@1.1.6': '@radix-ui/react-dialog',
+      '@radix-ui/react-context-menu@2.2.6': '@radix-ui/react-context-menu',
+      '@radix-ui/react-collapsible@1.1.3': '@radix-ui/react-collapsible',
+      '@radix-ui/react-checkbox@1.1.4': '@radix-ui/react-checkbox',
+      '@radix-ui/react-avatar@1.1.3': '@radix-ui/react-avatar',
+      '@radix-ui/react-aspect-ratio@1.1.2': '@radix-ui/react-aspect-ratio',
+      '@radix-ui/react-alert-dialog@1.1.6': '@radix-ui/react-alert-dialog',
+      '@radix-ui/react-accordion@1.2.3': '@radix-ui/react-accordion',
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
+  build: {
+    target: 'esnext',
+    outDir: 'build',
+  },
+  server: {
+    port: 3000,
+    open: true,
+  },
+});
+-----hardhat.config.js
+require("@nomicfoundation/hardhat-toolbox");
+
+/** @type import('hardhat/config').HardhatUserConfig */
+module.exports = {
+  solidity: "0.8.28",
+};
+-----------------------------------------------------------------
