@@ -1,6 +1,7 @@
 import { motion } from 'motion/react';
 import { useState } from 'react';
 import { Upload, Sparkles } from 'lucide-react';
+import { getContract } from '../web3/contract';
 
 const categories = ['Gods', 'Titans', 'Heroes', 'Creatures', 'Artifacts'];
 
@@ -25,22 +26,28 @@ export function MintNFTSection({ walletAddress, onLightning }) {
     }
   };
 
-  const handleMint = () => {
+  const handleMint = async () => {
     onLightning();
+
     if (!formData.name || !imagePreview) {
-      alert('Please fill in all required fields');
+      alert('Missing fields');
       return;
     }
-    alert(`Minting NFT: ${formData.name}`);
-    // Reset form
-    setFormData({
-      name: '',
-      description: '',
-      category: 'Gods',
-      collection: '',
-      newCollection: false,
-    });
-    setImagePreview(null);
+
+    try {
+      const contract = await getContract(true);
+
+      // Normally: upload metadata to IPFS
+      const tokenURI = imagePreview; // TEMP (replace with IPFS later)
+
+      const tx = await contract.mintNFT(tokenURI);
+      await tx.wait();
+
+      alert('NFT Minted Successfully ⚡');
+    } catch (err) {
+      console.error(err);
+      alert('Mint failed');
+    }
   };
 
   return (
