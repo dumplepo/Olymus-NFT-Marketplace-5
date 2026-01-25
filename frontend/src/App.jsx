@@ -12,18 +12,38 @@ export default function App() {
     setCurrentPage('main');
   };
 
-  const handleWalletConnect = () => {
-    if (walletConnected) {
-      setWalletConnected(false);
-      setWalletAddress('');
-      setCurrentPage('landing');
-    } else {
-      // Mock wallet connection
-      const mockAddress = '0x' + Math.random().toString(16).substr(2, 40);
-      setWalletAddress(mockAddress);
+  const handleWalletConnect = async () => {
+    if (!window.ethereum) {
+      alert('Please install MetaMask');
+      return;
+    }
+    try {
+      const accounts = await window.ethereum.request({
+        method: 'eth_requestAccounts',
+      });
+
+      setWalletAddress(accounts[0]);
       setWalletConnected(true);
+      setCurrentPage('main');
+    } catch (err) {
+      console.error(err);
     }
   };
+
+
+  useEffect(() => {
+    if (!window.ethereum) return;
+
+    window.ethereum.on('accountsChanged', (accounts) => {
+      if (accounts.length === 0) {
+        setWalletConnected(false);
+        setWalletAddress('');
+        setCurrentPage('landing');
+      } else {
+        setWalletAddress(accounts[0]);
+      }
+    });
+  }, []);
 
   return (
     <div className="min-h-screen bg-slate-950">
