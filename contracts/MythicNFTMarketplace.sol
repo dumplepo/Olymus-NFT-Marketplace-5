@@ -299,4 +299,10 @@ contract MythicNFTMarketplace is ERC721URIStorage, ReentrancyGuard, Ownable {
 
         _transfer(msg.sender, request.buyer, tokenId);
     }
+
+
+    // Example function in the contract
+    function getBalance(address user) public view returns (uint256) {
+        return balanceOf(user);
+    }
 }
