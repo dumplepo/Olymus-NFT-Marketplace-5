@@ -1,52 +1,79 @@
-import { motion } from 'motion/react';
-import { useState } from 'react';
+import React, { useState } from 'react';
+import { motion } from 'framer-motion';
 import { Upload, Sparkles } from 'lucide-react';
-import { getContract } from '../web3/contract';
+import { getContract } from '../web3/contract'; 
+import { uploadFileToIPFS, uploadJSONToIPFS } from '../web3/pinata';
 
-const categories = ['Gods', 'Titans', 'Heroes', 'Creatures', 'Artifacts'];
+const categories = ['Gods', 'Titans', 'Heroes', 'Artifacts', 'Monsters'];
+const categoryToEnum = {
+  'Gods': 0, 'Titans': 1, 'Heroes': 2, 'Artifacts': 3, 'Monsters': 4
+};
 
 export function MintNFTSection({ walletAddress, onLightning }) {
-  const [formData, setFormData] = useState({
-    name: '',
-    description: '',
+  const [formData, setFormData] = useState({ 
+    name: '', 
+    description: '', 
     category: 'Gods',
     collection: '',
-    newCollection: false,
+    newCollection: false
   });
+  const [file, setFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
+  const [isMinting, setIsMinting] = useState(false);
 
   const handleImageUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (file) {
+    const uploadedFile = e.target.files[0];
+    if (uploadedFile) {
+      setFile(uploadedFile);
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result);
-      };
-      reader.readAsDataURL(file);
+      reader.onloadend = () => setImagePreview(reader.result);
+      reader.readAsDataURL(uploadedFile);
     }
   };
 
   const handleMint = async () => {
+    if (!formData.name || !file) return alert('Enter name and upload artwork');
     onLightning();
-
-    if (!formData.name || !imagePreview) {
-      alert('Missing fields');
-      return;
-    }
+    setIsMinting(true);
 
     try {
+      const imageURI = await uploadFileToIPFS(file);
+
+      const metadata = {
+        name: formData.name,
+        description: formData.description,
+        image: imageURI,
+        attributes: [{ trait_type: 'Category', value: formData.category }]
+      };
+      const tokenURI = await uploadJSONToIPFS(metadata);
+
       const contract = await getContract(true);
+      const categoryIndex = categoryToEnum[formData.category] || 0;
 
-      // Normally: upload metadata to IPFS
-      const tokenURI = imagePreview; // TEMP (replace with IPFS later)
+      const tx = await contract.mintNFT(
+        tokenURI, 
+        formData.name, 
+        formData.description, 
+        categoryIndex
+      );
 
-      const tx = await contract.mintNFT(tokenURI);
       await tx.wait();
+      alert('NFT Successfully Minted! ⚡');
 
-      alert('NFT Minted Successfully ⚡');
+      setFormData({ 
+        name: '', 
+        description: '', 
+        category: 'Gods',
+        collection: '',
+        newCollection: false
+      });
+      setFile(null);
+      setImagePreview(null);
     } catch (err) {
-      console.error(err);
-      alert('Mint failed');
+      console.error("Minting failed:", err);
+      alert('The forge failed. Please check your console for details.');
+    } finally {
+      setIsMinting(false);
     }
   };
 
@@ -60,7 +87,7 @@ export function MintNFTSection({ walletAddress, onLightning }) {
     >
       <div className="mb-8">
         <h2 className="text-3xl text-amber-400 tracking-wider mb-2">Forge New Artifact</h2>
-        <p className="text-amber-100/60">Create and mint your own legendary NFT blessed by the gods</p>
+        <p className="text-amber-100/60">Upload to IPFS and mint on the blockchain</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -119,9 +146,9 @@ export function MintNFTSection({ walletAddress, onLightning }) {
                   onChange={(e) => setFormData({ ...formData, newCollection: e.target.checked })}
                   className="w-4 h-4"
                 />
-                <span className="text-amber-100/70">Create new collection</span>
+                <label htmlFor="new-collection" className="text-amber-100/70">Create new collection</label>
               </div>
-              
+
               {formData.newCollection ? (
                 <input
                   type="text"
@@ -147,7 +174,6 @@ export function MintNFTSection({ walletAddress, onLightning }) {
             </div>
           </div>
 
-          {/* Image Upload */}
           <div>
             <label className="block text-amber-100 mb-2 tracking-wide">Artwork *</label>
             <div className="relative">
@@ -160,7 +186,7 @@ export function MintNFTSection({ walletAddress, onLightning }) {
               />
               <label
                 htmlFor="image-upload"
-                className="block w-full px-4 py-8 bg-slate-900/50 border-2 border-dashed border-amber-500/20 
+                className="block w-full px-4 py-8 bg-slate-900/50 border-2 border-dashed border-amber-500/20
                            rounded-lg cursor-pointer hover:border-amber-500/40 transition-colors"
               >
                 <div className="text-center">
@@ -177,23 +203,25 @@ export function MintNFTSection({ walletAddress, onLightning }) {
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             onClick={handleMint}
-            className="w-full px-6 py-4 bg-gradient-to-r from-amber-600 to-amber-500 
-                       hover:from-amber-500 hover:to-amber-400 text-slate-950 
+            disabled={isMinting}
+            className={`w-full px-6 py-4 bg-gradient-to-r from-amber-600 to-amber-500
+                       hover:from-amber-500 hover:to-amber-400 text-slate-950
                        rounded-lg flex items-center justify-center gap-3
                        shadow-[0_0_30px_rgba(251,191,36,0.4)] hover:shadow-[0_0_50px_rgba(251,191,36,0.6)]
-                       transition-all duration-300"
+                       transition-all duration-300 ${isMinting ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             <Sparkles className="w-5 h-5" />
-            <span className="text-lg tracking-wider">MINT NFT</span>
+            <span className="text-lg tracking-wider">
+              {isMinting ? 'FORGING...' : 'MINT NFT'}
+            </span>
             <Sparkles className="w-5 h-5" />
           </motion.button>
         </div>
 
-        {/* Preview */}
         <div className="lg:sticky lg:top-32 h-fit">
           <div className="bg-slate-900/50 backdrop-blur-sm border border-amber-500/20 rounded-xl p-6">
             <h3 className="text-xl text-amber-400 tracking-wide mb-4">Preview</h3>
-            
+
             <div className="aspect-[1/1.618] bg-slate-800 rounded-lg overflow-hidden mb-4">
               {imagePreview ? (
                 <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" />
@@ -212,7 +240,7 @@ export function MintNFTSection({ walletAddress, onLightning }) {
                 <div className="text-amber-100/50 text-sm mb-1">Name</div>
                 <div className="text-amber-100">{formData.name || 'Untitled'}</div>
               </div>
-              
+
               <div>
                 <div className="text-amber-100/50 text-sm mb-1">Category</div>
                 <div className="inline-block px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40">
@@ -229,11 +257,13 @@ export function MintNFTSection({ walletAddress, onLightning }) {
 
               <div>
                 <div className="text-amber-100/50 text-sm mb-1">Creator</div>
-                <div className="text-amber-100 text-sm">{walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}</div>
+                <div className="text-amber-100 text-sm">
+                  {walletAddress ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}` : '0x00...0000'}
               </div>
             </div>
           </div>
         </div>
+      </div>
       </div>
     </motion.div>
   );
