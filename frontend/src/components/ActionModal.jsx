@@ -1,36 +1,49 @@
 import { motion } from 'motion/react';
+import { X, DollarSign, Send, Gavel, Loader2 } from 'lucide-react';
 import { useState } from 'react';
-import { X } from 'lucide-react';
-
+import { getContract } from '../web3/contract';
+import { ethers } from 'ethers';
 const ActionModal = ({ type, nft, onClose, onLightning }) => {
-  const [price, setPrice] = useState('');
-  const [address, setAddress] = useState('');
-  const [duration, setDuration] = useState('');
+  const [inputValue, setInputValue] = useState('');
+  const [duration, setDuration] = useState('3600');
+  const [isProcessing, setIsProcessing] = useState(false);
 
-  const handleSubmit = () => {
+  const handleExecute = async () => {
+    if (!inputValue) return alert("Please fill the required field");
+    setIsProcessing(true);
     onLightning();
-    
-    if (type === 'sell' && price) {
-      alert(`Listing ${nft.name} for ${price} ETH`);
-    } else if (type === 'transfer' && address) {
-      alert(`Transferring ${nft.name} to ${address}`);
-    } else if (type === 'auction' && price && duration) {
-      alert(`Starting auction for ${nft.name}\nStarting Price: ${price} ETH\nDuration: ${duration} seconds`);
-    } else {
-      alert('Please fill in all fields');
-      return;
+
+    try {
+      const contract = await getContract(true);
+      let tx;
+      if (type === 'sell') {
+        const priceInWei = ethers.parseEther(inputValue);
+        tx = await contract.listForSale(nft.tokenId, priceInWei);
+      } 
+      else if (type === 'transfer') {
+        tx = await contract.transferNFT(nft.tokenId, inputValue);
+      } 
+      else if (type === 'auction') {
+        const startPriceInWei = ethers.parseEther(inputValue);
+        tx = await contract.createAuction(nft.tokenId, startPriceInWei, duration);
+      }
+
+      await tx.wait();
+      alert(`${type.toUpperCase()} Success! ⚡`);
+      onClose();
+      window.location.reload();
+    } catch (err) {
+      console.error(err);
+      alert("Transaction failed. Check console for details.");
+    } finally {
+      setIsProcessing(false);
     }
-    
-    setTimeout(() => onClose(), 300);
   };
 
-  const getTitle = () => {
-    switch (type) {
-      case 'sell': return 'List for Sale';
-      case 'transfer': return 'Transfer NFT';
-      case 'auction': return 'Create Auction';
-      default: return '';
-    }
+  const config = {
+    sell: { label: 'List for Sale', icon: <DollarSign className="w-6 h-6" />, placeholder: 'Price in ETH' },
+    transfer: { label: 'Send NFT', icon: <Send className="w-6 h-6" />, placeholder: 'Recipient Wallet Address (0x...)' },
+    auction: { label: 'Start Auction', icon: <Gavel className="w-6 h-6" />, placeholder: 'Starting Price in ETH' }
   };
 
   return (
@@ -46,11 +59,13 @@ const ActionModal = ({ type, nft, onClose, onLightning }) => {
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.9, opacity: 0 }}
         onClick={(e) => e.stopPropagation()}
-        className="bg-slate-900 border border-amber-500/20 rounded-xl max-w-md w-full p-6 
+        className="bg-slate-900 border border-amber-500/20 rounded-2xl max-w-md w-full p-6 
                    shadow-[0_0_60px_rgba(251,191,36,0.2)]"
       >
         <div className="flex items-center justify-between mb-6">
-          <h3 className="text-2xl text-amber-400 tracking-wide">{getTitle()}</h3>
+          <h3 className="text-2xl text-amber-400 tracking-wide flex items-center gap-2">
+            {config[type].icon} {config[type].label}
+          </h3>
           <button
             onClick={onClose}
             className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
@@ -59,84 +74,68 @@ const ActionModal = ({ type, nft, onClose, onLightning }) => {
           </button>
         </div>
 
-        <div className="mb-6">
-          <p className="text-amber-100/70 mb-2">NFT: {nft.name}</p>
-          <p className="text-amber-100/50 text-sm">Token #{nft.tokenId}</p>
-        </div>
-
         <div className="space-y-4 mb-6">
-          {(type === 'sell' || type === 'auction') && (
+          <div className="p-4 bg-slate-800/50 rounded-xl flex items-center gap-4 border border-amber-500/10">
+            <img src={nft.image} alt={nft.name} className="w-16 h-16 rounded-lg object-cover" />
             <div>
-              <label className="block text-amber-100 mb-2">
-                {type === 'auction' ? 'Starting Price (ETH)' : 'Price (ETH)'}
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={price}
-                onChange={(e) => setPrice(e.target.value)}
-                placeholder="0.00"
-                className="w-full px-4 py-3 bg-slate-800 border border-amber-500/20 rounded-lg
-                           text-amber-100 placeholder-amber-100/30 focus:outline-none focus:border-amber-500/40"
-              />
+              <p className="text-amber-100 font-bold">{nft.name}</p>
+              <p className="text-amber-100/50 text-sm">Token #{nft.tokenId}</p>
             </div>
-          )}
+          </div>
 
-          {type === 'transfer' && (
-            <div>
-              <label className="block text-amber-100 mb-2">Recipient Address</label>
-              <input
-                type="text"
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                placeholder="0x..."
-                className="w-full px-4 py-3 bg-slate-800 border border-amber-500/20 rounded-lg
-                           text-amber-100 placeholder-amber-100/30 focus:outline-none focus:border-amber-500/40"
-              />
-            </div>
-          )}
+          <div>
+            <label className="block text-amber-100/60 text-sm mb-2">
+              {config[type].placeholder}
+            </label>
+            <input
+              type="text"
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              placeholder="..."
+              className="w-full px-4 py-3 bg-slate-800 border border-amber-500/20 rounded-lg
+                         text-amber-100 placeholder-amber-100/30 focus:outline-none focus:border-amber-500/40"
+            />
+          </div>
 
           {type === 'auction' && (
             <div>
-              <label className="block text-amber-100 mb-2">Duration (seconds)</label>
-              <input
-                type="number"
-                min="1"
+              <label className="block text-amber-100/60 text-sm mb-2">Duration</label>
+              <select 
                 value={duration}
                 onChange={(e) => setDuration(e.target.value)}
-                placeholder="3600"
                 className="w-full px-4 py-3 bg-slate-800 border border-amber-500/20 rounded-lg
-                           text-amber-100 placeholder-amber-100/30 focus:outline-none focus:border-amber-500/40"
-              />
-              <p className="text-amber-100/40 text-xs mt-1">
-                Example: 3600 = 1 hour, 86400 = 1 day
-              </p>
+                           text-amber-100 focus:outline-none focus:border-amber-500/40"
+              >
+                <option value="3600">1 Hour</option>
+                <option value="86400">1 Day</option>
+                <option value="604800">1 Week</option>
+              </select>
             </div>
           )}
         </div>
 
         <div className="flex gap-3">
           <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
             onClick={onClose}
             className="flex-1 px-6 py-3 bg-slate-800 hover:bg-slate-700 text-amber-100 
-                       rounded-lg transition-colors"
+                       rounded-xl transition-colors font-bold"
           >
             Cancel
           </motion.button>
           
           <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={handleSubmit}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            disabled={isProcessing}
+            onClick={handleExecute}
             className="flex-1 px-6 py-3 bg-gradient-to-r from-amber-600 to-amber-500 
                        hover:from-amber-500 hover:to-amber-400 text-slate-950 
-                       rounded-lg transition-all duration-300
-                       shadow-[0_0_20px_rgba(251,191,36,0.3)]"
+                       rounded-xl transition-all duration-300 font-bold
+                       shadow-[0_0_20px_rgba(251,191,36,0.3)] disabled:opacity-50"
           >
-            Confirm
+            {isProcessing ? <Loader2 className="animate-spin mx-auto w-6 h-6" /> : `Execute ${type}`}
           </motion.button>
         </div>
       </motion.div>

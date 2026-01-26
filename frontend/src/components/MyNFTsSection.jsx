@@ -31,28 +31,35 @@ export function MyNFTsSection({ walletAddress, onLightning, onNFTClick }) {
             const owner = await contract.ownerOf(i);
 
             if (owner.toLowerCase() === walletAddress.toLowerCase()) {
-              const meta = await contract.nftMetadata(i);
-              const tokenURI = await contract.tokenURI(i);
+              // 1. Check if it's listed for sale
+              const listing = await contract.marketplaceListings(i);
+              // 2. Check if it's in an active auction
+              const auction = await contract.auctions(i);
 
-              const gatewayUrl = tokenURI.replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/');
-              const response = await axios.get(gatewayUrl);
-              const ipfsData = response.data;
+              // ONLY show in "My NFT" if NOT listed and NOT in auction
+              if (!listing.active && !auction.active) {
+                const meta = await contract.nftMetadata(i);
+                const tokenURI = await contract.tokenURI(i);
+                const gatewayUrl = tokenURI.replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/');
+                const response = await axios.get(gatewayUrl);
+                const ipfsData = response.data;
 
-              tokens.push({
-                tokenId: i,
-                name: meta.name || ipfsData.name,
-                description: meta.description || ipfsData.description,
-                image: ipfsData.image?.replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/'),
-                category: Number(meta.nftType),
-                creator: meta.creator,
-                owner: owner
-              });
+                tokens.push({
+                  tokenId: i,
+                  name: meta.name || ipfsData.name,
+                  description: meta.description || ipfsData.description,
+                  image: ipfsData.image?.replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/'),
+                  category: Number(meta.nftType),
+                  creator: meta.creator,
+                  owner: owner,
+                  createdAt: new Date()
+                });
+              }
             }
           } catch (e) {
             console.warn(`Token ${i} skip:`, e.message);
           }
-        }
-        setMyNFTs(tokens);
+        }        setMyNFTs(tokens);
       } catch (err) {
         console.error("Fetch Error:", err);
         // This alerts you if the address is still 0x
