@@ -1,77 +1,84 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { LandingPage } from './components/LandingPage';
 import { MainPage } from './components/MainPage';
 import { motion, AnimatePresence } from 'motion/react';
+import { getProvider } from './web3/contract';
 
 export default function App() {
-  const [currentPage, setCurrentPage] = useState('landing'); // Removed type annotation
+  const [currentPage, setCurrentPage] = useState('landing');
   const [walletConnected, setWalletConnected] = useState(false);
   const [walletAddress, setWalletAddress] = useState('');
 
-  const handleEnterMain = () => {
-    setCurrentPage('main');
-  };
-
   const handleWalletConnect = async () => {
-    if (!window.ethereum) {
-      alert('Please install MetaMask');
+    if (walletConnected) {
+        setWalletConnected(false);
+        setWalletAddress('');
+        setCurrentPage('landing');
       return;
-    }
-    try {
-      const accounts = await window.ethereum.request({
-        method: 'eth_requestAccounts',
-      });
+      }
 
-      setWalletAddress(accounts[0]);
+    try {
+      if (!window.ethereum) {
+        alert('MetaMask not found! Please install it to interact with Olympus.');
+        return;
+      }
+
+      const provider = await getProvider();
+      const signer = await provider.getSigner();
+      const address = await signer.getAddress();
+
+      setWalletAddress(address);
       setWalletConnected(true);
       setCurrentPage('main');
     } catch (err) {
-      console.error(err);
+      console.error("Wallet connection failed:", err);
     }
   };
 
+  const handleDisconnect = useCallback(() => {
+    setWalletConnected(false);
+    setWalletAddress('');
+    setCurrentPage('landing');
+  }, []);
 
   useEffect(() => {
     if (!window.ethereum) return;
 
-    window.ethereum.on('accountsChanged', (accounts) => {
-      if (accounts.length === 0) {
-        setWalletConnected(false);
-        setWalletAddress('');
-        setCurrentPage('landing');
-      } else {
-        setWalletAddress(accounts[0]);
+    const handleAccountsChanged = (accounts) => {
+      if (walletConnected) {
+        handleDisconnect();
       }
-    });
-  }, []);
+    };
+
+    const handleChainChanged = () => {
+      window.location.reload();
+    };
+
+    window.ethereum.on('accountsChanged', handleAccountsChanged);
+    window.ethereum.on('chainChanged', handleChainChanged);
+    return () => {
+      if (window.ethereum.removeListener) {
+        window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
+        window.ethereum.removeListener('chainChanged', handleChainChanged);
+      }
+    };
+  }, [walletConnected, handleDisconnect]);
 
   return (
     <div className="min-h-screen bg-slate-950">
       <AnimatePresence mode="wait">
         {currentPage === 'landing' ? (
-          <motion.div
-            key="landing"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            transition={{ duration: 0.8 }}
-          >
-            <LandingPage onEnter={handleEnterMain} />
-          </motion.div>
+          <LandingPage 
+            key="landing" 
+            onEnter={handleWalletConnect} 
+          />
         ) : (
-          <motion.div
-            key="main"
-            initial={{ opacity: 0, y: 50 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.8 }}
-          >
-            <MainPage
+          <MainPage 
+            key="main" 
               walletConnected={walletConnected}
-              walletAddress={walletAddress}
+            walletAddress={walletAddress} 
               onWalletAction={handleWalletConnect}
             />
-          </motion.div>
         )}
       </AnimatePresence>
     </div>
