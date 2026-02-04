@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { LandingPage } from './components/LandingPage';
 import { MainPage } from './components/MainPage';
 import { motion, AnimatePresence } from 'motion/react';
@@ -84,30 +84,18 @@ export default function App() {
     <div className="min-h-screen bg-slate-950">
       <AnimatePresence mode="wait">
         {currentPage === 'landing' ? (
-          <motion.div
-            key="landing"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            transition={{ duration: 0.8 }}
-          >
-            <LandingPage onEnter={handleEnterMain} />
-          </motion.div>
+          <LandingPage 
+            key="landing" 
+            onEnter={handleWalletConnect} 
+          />
         ) : (
-          <motion.div
-            key="main"
-            initial={{ opacity: 0, y: 50 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.8 }}
-          >
-            <MainPage
+          <MainPage 
+            key="main" 
               walletConnected={walletConnected}
-              walletAddress={walletAddress}
+            walletAddress={walletAddress} 
               onWalletAction={handleWalletConnect}
               fetchContractData={fetchContractData}  // Pass contract interaction function
             />
-          </motion.div>
         )}
       </AnimatePresence>
     </div>

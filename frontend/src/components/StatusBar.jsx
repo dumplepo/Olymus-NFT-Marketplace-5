@@ -12,7 +12,7 @@ export function StatusBar({ walletConnected, walletAddress, onWalletAction, onLi
       <div className="max-w-7xl mx-auto px-8 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Zap className="w-8 h-8 text-amber-400" />
-          <h1 className="text-2xl tracking-wider bg-gradient-to-r from-amber-400 to-amber-600 
+          <h1 className="text-2xl tracking-wider bg-gradient-to-r from-amber-400 to-amber-600
                          bg-clip-text text-transparent">
             OLYMPUS MARKET
           </h1>
@@ -31,8 +31,11 @@ export function StatusBar({ walletConnected, walletAddress, onWalletAction, onLi
           `}
         >
           <Wallet className="w-4 h-4 text-slate-950" />
-          <span className="text-slate-950 tracking-wide">
-            {walletConnected ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}` : 'Connect Wallet'}
+          <span className="text-slate-950 tracking-wide font-bold text-sm">
+            {walletConnected 
+              ? `DISCONNECT: ${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}` 
+              : 'CONNECT WALLET'
+            }
           </span>
         </motion.button>
       </div>
