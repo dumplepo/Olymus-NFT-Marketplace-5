@@ -97,8 +97,12 @@ export function MyNFTsSection({ walletAddress, onLightning, onNFTClick }) {
       className="max-w-7xl mx-auto px-8 py-12"
     >
       <div className="mb-8">
-        <h2 className="text-3xl text-amber-400 tracking-wider mb-2">My Sacred Collection</h2>
-        <p className="text-amber-100/60">NFTs blessed by the gods and owned by your wallet</p>
+        <h2 className="text-3xl text-amber-400 tracking-wider mb-2">
+          My Sacred Collection
+        </h2>
+        <p className="text-amber-100/60">
+          NFTs owned directly by your wallet
+        </p>
       </div>
 
       {myNFTs.length === 0 ? (
@@ -112,7 +116,6 @@ export function MyNFTsSection({ walletAddress, onLightning, onNFTClick }) {
             <NFTCard
               key={nft.tokenId}
               nft={nft}
-              onLightning={onLightning}
               onClick={() => onNFTClick(nft)}
               actions={
                 <div className="flex gap-2">

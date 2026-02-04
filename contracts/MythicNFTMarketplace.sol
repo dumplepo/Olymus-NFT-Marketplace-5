@@ -100,7 +100,7 @@ contract MythicNFTMarketplace is ERC721URIStorage, ReentrancyGuard, Ownable {
     event AuctionEnded(uint256 tokenId, address winner);
 
     constructor() ERC721("MythicNFT", "MYTH") Ownable(msg.sender) {
-        tokenCounter = 0;
+        tokenCounter = 1;
     }
 
     /* ------------------------------------------------------------ */
@@ -147,6 +147,8 @@ contract MythicNFTMarketplace is ERC721URIStorage, ReentrancyGuard, Ownable {
         require(ownerOf(tokenId) == msg.sender, "Not NFT owner");
         require(price > 0, "Price must be > 0");
 
+        _transfer(msg.sender, address(this), tokenId);
+
         marketplaceListings[tokenId] = Listing({
             price: price,
             seller: msg.sender,
@@ -161,9 +163,12 @@ contract MythicNFTMarketplace is ERC721URIStorage, ReentrancyGuard, Ownable {
     */
     function cancelSale(uint256 tokenId) external {
         Listing storage listing = marketplaceListings[tokenId];
+        require(listing.active, "Not listed");
         require(listing.seller == msg.sender, "Not seller");
 
         listing.active = false;
+
+        _transfer(address(this), msg.sender, tokenId);
         emit SaleCancelled(tokenId);
     }
 
@@ -179,7 +184,8 @@ contract MythicNFTMarketplace is ERC721URIStorage, ReentrancyGuard, Ownable {
 
         (bool success, ) = payable(listing.seller).call{value: msg.value}("");
         require(success, "Payment to seller failed");
-        _transfer(listing.seller, msg.sender, tokenId);
+        
+        _transfer(address(this), msg.sender, tokenId);
 
         emit NFTPurchased(tokenId, msg.sender);
     }
