@@ -89,7 +89,10 @@ export function NFTDetailModal({ nft, onClose, onLightning }) {
                 <Calendar className="w-5 h-5 text-amber-400 mt-0.5" />
                 <div className="flex-1">
                   <div className="text-amber-100/60 text-sm mb-1">Created</div>
-                  <div className="text-amber-100">{nft.createdAt.toLocaleDateString()}</div>
+                  <div className="text-amber-100">
+                    {/* SAFE CHECK: Check if createdAt exists before calling toLocaleDateString */}
+                    {nft.createdAt ? new Date(nft.createdAt).toLocaleDateString() : 'Date Unknown'}
+                  </div>
                 </div>
               </div>
             </div>
@@ -113,3 +116,4 @@ export function NFTDetailModal({ nft, onClose, onLightning }) {
     </motion.div>
   );
 }
+

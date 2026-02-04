@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Upload, Sparkles } from 'lucide-react';
 import { getContract } from '../web3/contract'; 
-import { uploadFileToIPFS, uploadJSONToIPFS } from '../web3/pinata';
+import { uploadFileToIPFS, uploadJSONToIPFS } from '../pinata';
 
 const categories = ['Gods', 'Titans', 'Heroes', 'Artifacts', 'Monsters'];
 const categoryToEnum = {
