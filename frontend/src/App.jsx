@@ -2,67 +2,83 @@ import { useState, useEffect, useCallback } from 'react';
 import { LandingPage } from './components/LandingPage';
 import { MainPage } from './components/MainPage';
 import { motion, AnimatePresence } from 'motion/react';
-import { getProvider } from './web3/contract';
+import { useEthereum } from './utils/ethers';  // Import the hook to handle Ethereum connection
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState('landing');
   const [walletConnected, setWalletConnected] = useState(false);
   const [walletAddress, setWalletAddress] = useState('');
+  
+  // Hook for Ethereum connection and contract interaction
+  const { provider, signer, contract } = useEthereum();
+
+  const handleEnterMain = () => {
+    setCurrentPage('main');
+  };
 
   const handleWalletConnect = async () => {
+    // DISCONNECT (app-level)
     if (walletConnected) {
-        setWalletConnected(false);
-        setWalletAddress('');
-        setCurrentPage('landing');
+      setWalletConnected(false);
+      setWalletAddress('');
+      setCurrentPage('landing');
       return;
-      }
+    }
+
+    // CONNECT
+    if (!provider) return;
 
     try {
-      if (!window.ethereum) {
-        alert('MetaMask not found! Please install it to interact with Olympus.');
-        return;
+      const accounts = await provider.send("eth_requestAccounts", []);
+      if (accounts.length > 0) {
+        setWalletAddress(accounts[0]);
+        setWalletConnected(true);
+        setCurrentPage('main');
       }
-
-      const provider = await getProvider();
-      const signer = await provider.getSigner();
-      const address = await signer.getAddress();
-
-      setWalletAddress(address);
-      setWalletConnected(true);
-      setCurrentPage('main');
     } catch (err) {
-      console.error("Wallet connection failed:", err);
+      console.error('Error connecting wallet:', err);
     }
   };
 
-  const handleDisconnect = useCallback(() => {
-    setWalletConnected(false);
-    setWalletAddress('');
-    setCurrentPage('landing');
-  }, []);
+  // Example interaction with the smart contract: Get balance or other smart contract methods
+  const fetchContractData = async () => {
+    if (walletAddress && provider) {
+      try {
+        // Fetch wallet balance
+        const balance = await provider.getBalance(walletAddress);
+        console.log('ETH balance:', ethers.utils.formatEther(balance));  // format balance to ETH
+      } catch (err) {
+        console.error('Error fetching wallet balance:', err);
+      }
+    }
+
+    if (contract) {
+      try {
+        // Fetch contract balance if the contract has a getBalance function
+        const contractBalance = await contract.getBalance(walletAddress);  // Ensure getBalance() method is correct in the contract
+        console.log('Contract balance:', contractBalance.toString());
+      } catch (err) {
+        console.error('Error fetching contract data:', err);
+      }
+    }
+  };
 
   useEffect(() => {
     if (!window.ethereum) return;
 
-    const handleAccountsChanged = (accounts) => {
-      if (walletConnected) {
-        handleDisconnect();
-      }
-    };
-
-    const handleChainChanged = () => {
-      window.location.reload();
+    const handleAccountsChanged = () => {
+      // Break app-level connection
+      setWalletConnected(false);
+      setWalletAddress('');
+      // ❗ DO NOT change currentPage
     };
 
     window.ethereum.on('accountsChanged', handleAccountsChanged);
-    window.ethereum.on('chainChanged', handleChainChanged);
+
     return () => {
-      if (window.ethereum.removeListener) {
-        window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
-        window.ethereum.removeListener('chainChanged', handleChainChanged);
-      }
+      window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
     };
-  }, [walletConnected, handleDisconnect]);
+  }, []);
 
   return (
     <div className="min-h-screen bg-slate-950">
@@ -78,6 +94,7 @@ export default function App() {
               walletConnected={walletConnected}
             walletAddress={walletAddress} 
               onWalletAction={handleWalletConnect}
+              fetchContractData={fetchContractData}  // Pass contract interaction function
             />
         )}
       </AnimatePresence>

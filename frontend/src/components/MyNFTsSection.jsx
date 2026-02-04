@@ -1,10 +1,10 @@
-import { motion } from "framer-motion";
-import { useState, useEffect } from "react";
-import { NFTCard } from "./NFTCard";
-import { DollarSign, Send } from "lucide-react";
-import ActionModal from "./ActionModal";
-import { getContract } from "../web3/contract";
-import axios from "axios";
+import { motion } from 'framer-motion';
+import { useState, useEffect } from 'react';
+import { NFTCard } from './NFTCard';
+import { DollarSign, Send, Gavel } from 'lucide-react';
+import ActionModal from './ActionModal';
+import { getContract } from '../web3/contract';
+import axios from 'axios';
 
 export function MyNFTsSection({ walletAddress, onLightning, onNFTClick }) {
   const [actionModal, setActionModal] = useState(null);
@@ -18,71 +18,58 @@ export function MyNFTsSection({ walletAddress, onLightning, onNFTClick }) {
 
       try {
         const contract = await getContract();
-        const counter = Number(await contract.tokenCounter());
+
+        // BIGINT FIX: Convert the BigInt result to a standard Number for the loop
+        const counter = await contract.tokenCounter();
+        const totalTokens = Number(counter); 
+
+        console.log("Found total tokens minted:", totalTokens);
 
         const tokens = [];
-
-        // ✅ token IDs start at 1
-        for (let tokenId = 1; tokenId < counter; tokenId++) {
+        for (let i = 0; i < totalTokens; i++) {
           try {
-            const owner = await contract.ownerOf(tokenId);
+            const owner = await contract.ownerOf(i);
 
-            // ✅ only NFTs owned by wallet (not escrowed)
-            if (
-              owner.toLowerCase() !== walletAddress.toLowerCase()
-            )
-              continue;
+            if (owner.toLowerCase() === walletAddress.toLowerCase()) {
+              // 1. Check if it's listed for sale
+              const listing = await contract.marketplaceListings(i);
+              // 2. Check if it's in an active auction
+              const auction = await contract.auctions(i);
 
-            // ✅ if listed, skip (escrowed NFTs won't match owner anyway,
-            // but this keeps logic future-proof)
-            const listing =
-              await contract.marketplaceListings(tokenId);
-            if (listing.active) continue;
+              // ONLY show in "My NFT" if NOT listed and NOT in auction
+              if (!listing.active && !auction.active) {
+                const meta = await contract.nftMetadata(i);
+                const tokenURI = await contract.tokenURI(i);
+                const gatewayUrl = tokenURI.replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/');
+                const response = await axios.get(gatewayUrl);
+                const ipfsData = response.data;
 
-            const meta = await contract.nftMetadata(tokenId);
-            const tokenURI = await contract.tokenURI(tokenId);
-
-            const gatewayUrl = tokenURI.replace(
-              "ipfs://",
-              "https://gateway.pinata.cloud/ipfs/"
-            );
-
-            const { data } = await axios.get(gatewayUrl);
-
-            tokens.push({
-              tokenId,
-              name: meta.name || data.name,
-              description: meta.description || data.description,
-              image: data.image?.replace(
-                "ipfs://",
-                "https://gateway.pinata.cloud/ipfs/"
-              ),
-              category: Number(meta.nftType),
-              creator: meta.creator,
-              owner,
-              createdAt: new Date(),
-            });
-          } catch (err) {
-            console.warn(
-              `Skipping token ${tokenId}`,
-              err.message
-            );
+                tokens.push({
+                  tokenId: i,
+                  name: meta.name || ipfsData.name,
+                  description: meta.description || ipfsData.description,
+                  image: ipfsData.image?.replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/'),
+                  category: Number(meta.nftType),
+                  creator: meta.creator,
+                  owner: owner,
+                  createdAt: new Date()
+                });
+              }
+            }
+          } catch (e) {
+            console.warn(`Token ${i} skip:`, e.message);
           }
-        }
-
-        setMyNFTs(tokens);
+        }        setMyNFTs(tokens);
       } catch (err) {
         console.error("Fetch Error:", err);
-        if (err.message?.includes("bad_data")) {
-          alert(
-            "Contract not found. Check CONTRACT_ADDRESS in contract.js"
-          );
-        }
+        // This alerts you if the address is still 0x
+        if (err.message.includes("bad_data")) {
+            alert("Contract not found! Did you update the CONTRACT_ADDRESS in contract.js?");
+      }
       } finally {
         setIsLoading(false);
       }
     };
-
     fetchMyNFTs();
   }, [walletAddress]);
 
@@ -120,12 +107,8 @@ export function MyNFTsSection({ walletAddress, onLightning, onNFTClick }) {
 
       {myNFTs.length === 0 ? (
         <div className="text-center py-20">
-          <p className="text-amber-100/40 text-xl">
-            Your divine vault is empty
-          </p>
-          <p className="text-amber-100/30 mt-2">
-            Mint an NFT to see it here
-          </p>
+          <p className="text-amber-100/40 text-xl">Your divine vault is empty</p>
+          <p className="text-amber-100/30 mt-2">Forge an NFT to see it here</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
@@ -138,30 +121,29 @@ export function MyNFTsSection({ walletAddress, onLightning, onNFTClick }) {
                 <div className="flex gap-2">
                   <motion.button
                     whileHover={{ scale: 1.02 }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleAction("sell", nft);
-                    }}
+                    onClick={(e) => { e.stopPropagation(); handleAction('sell', nft); }}
                     className="flex-1 px-3 py-2 bg-amber-600 text-slate-950 rounded-lg flex items-center justify-center gap-2"
                   >
                     <DollarSign className="w-4 h-4" />
-                    <span className="text-sm font-bold">
-                      Sell
-                    </span>
+                    <span className="text-sm font-bold">Sell</span>
                   </motion.button>
 
                   <motion.button
                     whileHover={{ scale: 1.02 }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleAction("transfer", nft);
-                    }}
+                    onClick={(e) => { e.stopPropagation(); handleAction('transfer', nft); }}
                     className="flex-1 px-3 py-2 bg-blue-600 text-white rounded-lg flex items-center justify-center gap-2"
                   >
                     <Send className="w-4 h-4" />
-                    <span className="text-sm font-bold">
-                      Send
-                    </span>
+                    <span className="text-sm font-bold">Send</span>
+                  </motion.button>
+
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    onClick={(e) => { e.stopPropagation(); handleAction('auction', nft); }}
+                    className="flex-1 px-3 py-2 bg-purple-600 text-white rounded-lg flex items-center justify-center gap-2"
+                  >
+                    <Gavel className="w-4 h-4" />
+                    <span className="text-sm font-bold">Auction</span>
                   </motion.button>
                 </div>
               }
@@ -181,3 +163,5 @@ export function MyNFTsSection({ walletAddress, onLightning, onNFTClick }) {
     </motion.div>
   );
 }
+
+
